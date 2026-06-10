@@ -396,22 +396,32 @@ encoder) the moment the handshake exists to exercise it. It is an ordinary
 authenticated operation that happens to negotiate the version; like every other op
 it carries the token.
 
-## CryptoKit
+## CryptoKit, and what the probe found
 
-CryptoKit's `SecureEnclave.P256` bottoms out in the same `SecKey` C API, so hooking
-`SecKeyCreateRandomKey` and `SecKeyCreateSignature` catches it for free, and the
-roadmap's "CryptoKit calls get caught wherever they bottom out in `SecKey`" is met
-by the hooks already chosen. Two caveats keep it honest. The carrier class is one:
-if CryptoKit validates the returned key's attributes before wrapping it, the M2
-public carrier reads as `public` and CryptoKit could balk, which is the same gap M3
-closes with the `SecKeyCopyAttributes` hook, after which CryptoKit sees a private SE
-key. The other is that "bottoms out in `SecKey`" is an implementation detail of a
-closed framework, true today and historically, not a contract. So M2's commitment is
-the C-API capture and a signing round trip verified by a CryptoKit demo test, and
-full fidelity rides M3. And if a future OS stops routing `SecureEnclave.P256`
-through the hooked symbols, the public carrier still holds the line: the worst case
-is that CryptoKit does not reach the host, never that it signs with software while
-looking like it did. Best-effort capture, fail-closed when the capture misses.
+The assumption going in, from M0, was that CryptoKit's `SecureEnclave.P256` bottoms
+out in the same `SecKey` C API, so the existing hooks would catch it for free. The
+M2 probe disproved that on the current simulator.
+
+`run-cryptokit-probe.sh` runs a CryptoKit `SecureEnclave.P256` create-sign-verify in
+the simulator two ways. With no interposer it verifies. Injected against a dead
+helper port it still verifies. Contrast the `SecKey` C API (`sim_demo`, mechanism
+D), which fails outright in the simulator without the bridge, and fails again when
+the helper is unreachable. The asymmetry is conclusive: CryptoKit's `SecureEnclave`
+does not fail in the simulator, so it is not going through the SE path that fails. It
+falls back to a software key, and the interposer's hooks never see it.
+
+So M2 does not bridge CryptoKit's `SecureEnclave.P256`, and it cannot by hooking the
+`SecKey` C API, because that is not where CryptoKit's SecureEnclave bottoms out in
+the simulator. The supported real-hardware path is the `SecKey` C API directly,
+which mechanism D proves end to end. CryptoKit code that calls the `SecKey` C API,
+rather than the `SecureEnclave` wrapper, still goes through the hooks and is caught.
+
+The sharper implication is worth stating plainly: a developer testing
+`CryptoKit.SecureEnclave` in the simulator is exercising a software key whether or
+not SimEnclave is present. SimEnclave does not make that worse, and it cannot
+silently make it right, so the honest answer is to test those paths through the
+`SecKey` C API or on a real device. The probe is committed so the finding is
+reproducible and re-checkable when the OS changes.
 
 ## The menubar approval prompt
 
@@ -459,7 +469,8 @@ is no production path; the fence is the proof.
 ## What is M2, and what is not
 
 M2 is done when the passthrough invariant holds, a tag round-trips through `SecItem`,
-and CryptoKit is caught where it bottoms out in `SecKey`, with the native C and Swift
+and CryptoKit that reaches the `SecKey` C API is caught (the probe found CryptoKit's
+`SecureEnclave.P256` is not bridged in the simulator), with the native C and Swift
 suites green on a Mac with a real Secure Enclave:
 
 - The full `SecKey` hook set, with the public-key carrier, the `X962` SHA-256
@@ -508,10 +519,11 @@ the safety spine first, then features, then the dev ergonomics.
    same-carrier-per-tag rule, and `DELETE` routing through the registry removal.
    Green when a tag round-trips and a non-SE `SecItem` call is byte-identical with
    and without the interposer.
-4. **The invariant and CryptoKit.** Land the passthrough invariant test as a first-
-   class test, a CryptoKit `SecureEnclave.P256` demo that signs through the host, and
-   the bare-carrier-cannot-sign assertion. Green when the invariant test passes,
-   CryptoKit is caught, and signing a bare carrier returns null.
+4. **The invariant and the CryptoKit probe.** Land the passthrough invariant test as
+   a first-class test, the bare-carrier-cannot-sign assertion, and the CryptoKit
+   probe. Green when the invariant test passes, a bare carrier returns null when
+   asked to sign, and the probe documents that CryptoKit's `SecureEnclave.P256` falls
+   back to software in the simulator and so is not bridged.
 5. **Scheme injection and the doctor.** `scripts/set-scheme-env.sh` wires
    `DYLD_INSERT_LIBRARIES`, the port, and the token into a real app's scheme; `HELLO`
    dispatch and the `doctor` handshake land; the menubar approval prompt rides the

@@ -41,7 +41,7 @@ Before any polish, show the one thing that matters works: a hooked SecKey call i
 
 Done: a hooked `SecKeyCreateSignature` in the simulator returns a Mac-SEP signature that verifies, with the stock no-SEP failure as the control. That was the whole bar.
 
-SimEnclave targets the `SecKey` C API, which hooks cleanly, and the M0 demo uses it directly. Apps that use CryptoKit's `SecureEnclave.P256` are best-effort, since CryptoKit bottoms out in the same `SecKey` path.
+SimEnclave targets the `SecKey` C API, which hooks cleanly, and the M0 demo uses it directly. Apps that use CryptoKit's `SecureEnclave.P256` are not bridged: M2 found it falls back to a software key in the simulator rather than bottoming out in the hooked `SecKey` path. Test those paths through the `SecKey` C API or on a real device.
 
 ### M1: the helper, for real
 
@@ -72,7 +72,7 @@ The heart of the tool, and the most code. M0 scaffolded the shape, the seam, the
 - [ ] Scheme injection of `DYLD_INSERT_LIBRARIES`, via `scripts/set-scheme-env.sh`; the `simenclavectl init` polish is M5
 - [ ] The menubar's per-app approval prompt, keyed on the app id the interposer now reports (moved from M1; a convenience, not an access boundary)
 
-Done when the passthrough invariant holds (a non-SE keychain call is byte-identical with and without the interposer), a tag round-trips through `SecItem`, and CryptoKit calls get caught wherever they bottom out in `SecKey`.
+Done when the passthrough invariant holds (a non-SE keychain call is byte-identical with and without the interposer), a tag round-trips through `SecItem`, and CryptoKit code that bottoms out in the `SecKey` C API is caught. The M2 probe found that CryptoKit's `SecureEnclave.P256` does not bottom out there in the simulator, it falls back to a software key, so it is not bridged; the `SecKey` C API is the supported real-hardware path.
 
 ### M3: fidelity and biometry
 
