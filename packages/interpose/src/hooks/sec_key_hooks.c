@@ -17,12 +17,16 @@
 typedef SecKeyRef (*create_random_key_fn)(CFDictionaryRef, CFErrorRef *);
 typedef SecKeyRef (*copy_public_key_fn)(SecKeyRef);
 typedef CFDataRef (*create_signature_fn)(SecKeyRef, SecKeyAlgorithm, CFDataRef, CFErrorRef *);
+typedef CFDictionaryRef (*copy_attributes_fn)(SecKeyRef);
+typedef CFDataRef (*copy_external_representation_fn)(SecKeyRef, CFErrorRef *);
 typedef SecAccessControlRef (*ac_create_with_flags_fn)(CFAllocatorRef, CFTypeRef,
                                                        SecAccessControlCreateFlags, CFErrorRef *);
 
 static create_random_key_fn orig_create_random_key;
 static copy_public_key_fn orig_copy_public_key;
 static create_signature_fn orig_create_signature;
+static copy_attributes_fn orig_copy_attributes;
+static copy_external_representation_fn orig_copy_external_representation;
 static ac_create_with_flags_fn orig_ac_create_with_flags;
 
 // The access-control flags that make a key require a prompt at sign time: any
@@ -264,6 +268,44 @@ static CFDataRef hook_create_signature(SecKeyRef key, SecKeyAlgorithm algorithm,
   return CFDataCreate(NULL, response.signature, (CFIndex)response.signature_len);
 }
 
+// --- Fidelity hooks: the shadow reads like a device SE private key under introspection ---
+
+// A device's SE private key reports the Secure Enclave token and the private key class
+// under SecKeyCopyAttributes. The public-key carrier, unhooked, would report class public
+// and no token, the tell that it is a stand-in. So for a registered shadow the hook
+// synthesizes the attributes a real SE private key returns; anything else passes through.
+// The core attributes (token, class, type, size) are knowable and asserted; the
+// exhaustive dictionary is device-reference work to be captured before M4.
+static CFDictionaryRef hook_copy_attributes(SecKeyRef key) {
+  if (!orig_copy_attributes) return NULL; // install-window guard
+  if (!se_registry_is_shadow(key)) return orig_copy_attributes(key);
+  int bits = 256;
+  CFNumberRef bitsRef = CFNumberCreate(NULL, kCFNumberIntType, &bits);
+  const void *keys[] = {kSecAttrKeyType, kSecAttrKeyClass, kSecAttrKeySizeInBits, kSecAttrTokenID};
+  const void *values[] = {kSecAttrKeyTypeECSECPrimeRandom, kSecAttrKeyClassPrivate, bitsRef,
+                          kSecAttrTokenIDSecureEnclave};
+  CFDictionaryRef attrs = CFDictionaryCreate(NULL, keys, values, 4, &kCFTypeDictionaryKeyCallBacks,
+                                             &kCFTypeDictionaryValueCallBacks);
+  if (bitsRef) CFRelease(bitsRef);
+  return attrs; // +1 to the caller, as a Copy function returns
+}
+
+// A device's SE private key is not exportable: SecKeyCopyExternalRepresentation returns
+// NULL with an error. The carrier is a public key, so unhooked it would succeed and hand
+// back the point, the wrong behavior for something claiming to be a private SE key. So a
+// registered shadow gets that not-exportable error; the shadow's public key is not a
+// registered shadow, so it passes through and exports as a device's public key does. The
+// exact error code is device-reference work; errSecParam is the seed until a device run.
+static CFDataRef hook_copy_external_representation(SecKeyRef key, CFErrorRef *error) {
+  if (!orig_copy_external_representation) { // install-window guard, fail closed with an error
+    set_error(error, errSecNotAvailable);
+    return NULL;
+  }
+  if (!se_registry_is_shadow(key)) return orig_copy_external_representation(key, error);
+  set_error(error, errSecParam); // a device refuses to export an SE private key
+  return NULL;
+}
+
 // --- SecItem hooks: persistence by tag, in-session ---
 
 typedef OSStatus (*item_add_fn)(CFDictionaryRef, CFTypeRef *);
@@ -370,6 +412,9 @@ int simenclave_install_hooks(void) {
       {"SecKeyCreateRandomKey", (void *)hook_create_random_key, (void **)&orig_create_random_key},
       {"SecKeyCopyPublicKey", (void *)hook_copy_public_key, (void **)&orig_copy_public_key},
       {"SecKeyCreateSignature", (void *)hook_create_signature, (void **)&orig_create_signature},
+      {"SecKeyCopyAttributes", (void *)hook_copy_attributes, (void **)&orig_copy_attributes},
+      {"SecKeyCopyExternalRepresentation", (void *)hook_copy_external_representation,
+       (void **)&orig_copy_external_representation},
       {"SecAccessControlCreateWithFlags", (void *)hook_ac_create_with_flags,
        (void **)&orig_ac_create_with_flags},
       {"SecItemAdd", (void *)hook_item_add, (void **)&orig_item_add},
