@@ -55,10 +55,53 @@ int main(void) {
   printf("verify: %d\n", verified);
   if (!verified) fails++;
 
+  // Passthrough: a non-SE key is created and used by the real implementation,
+  // untouched. It verifies under its own public key, and the SE counters below
+  // must not move for it, which is the passthrough invariant in miniature.
+  int sw_bits = 256;
+  CFNumberRef sw_bitsRef = CFNumberCreate(NULL, kCFNumberIntType, &sw_bits);
+  const void *sw_keys[] = {kSecAttrKeyType, kSecAttrKeySizeInBits};
+  const void *sw_values[] = {kSecAttrKeyTypeECSECPrimeRandom, sw_bitsRef};
+  CFDictionaryRef sw_params =
+      CFDictionaryCreate(NULL, sw_keys, sw_values, 2, &kCFTypeDictionaryKeyCallBacks,
+                         &kCFTypeDictionaryValueCallBacks);
+  SecKeyRef sw_key = SecKeyCreateRandomKey(sw_params, NULL);
+  if (sw_key) {
+    SecKeyRef sw_pub = SecKeyCopyPublicKey(sw_key);
+    CFDataRef sw_sig = SecKeyCreateSignature(sw_key, kSecKeyAlgorithmECDSASignatureDigestX962SHA256,
+                                             digestData, NULL);
+    Boolean sw_ok =
+        sw_sig && SecKeyVerifySignature(sw_pub, kSecKeyAlgorithmECDSASignatureDigestX962SHA256,
+                                        digestData, sw_sig, NULL);
+    printf("passthrough verify: %d\n", sw_ok);
+    if (!sw_ok) fails++;
+    if (sw_pub) CFRelease(sw_pub);
+    if (sw_sig) CFRelease(sw_sig);
+    CFRelease(sw_key);
+  } else {
+    printf("FAIL: software-key passthrough create returned NULL\n");
+    fails++;
+  }
+  if (sw_bitsRef) CFRelease(sw_bitsRef);
+  if (sw_params) CFRelease(sw_params);
+
+  // Allowlist: an RFC4754 (raw r||s) algorithm on the SE key is refused, because
+  // the wire carries only the X9.62 DER form. The hook returns NULL, not a guess.
+  CFDataRef rejected = SecKeyCreateSignature(key, kSecKeyAlgorithmECDSASignatureDigestRFC4754SHA256,
+                                             digestData, NULL);
+  printf("rfc4754 refused: %d\n", rejected == NULL);
+  if (rejected) {
+    fails++;
+    CFRelease(rejected);
+  }
+
+  // The SE counters moved exactly once each: the software key's create, copy, and
+  // sign passed through and were not counted, and the refused algorithm did not
+  // reach the host. That is the passthrough invariant, measured.
   simenclave_hook_stats stats = simenclave_get_hook_stats();
   printf("stats: create=%d pubkey=%d sign=%d\n", stats.create_random_key, stats.copy_public_key,
          stats.create_signature);
-  if (stats.create_random_key < 1 || stats.copy_public_key < 1 || stats.create_signature < 1) {
+  if (stats.create_random_key != 1 || stats.copy_public_key != 1 || stats.create_signature != 1) {
     fails++;
   }
 
