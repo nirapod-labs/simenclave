@@ -17,6 +17,7 @@
 #include "shadow_ref.h"
 
 #include <pthread.h>
+#include <stdio.h>
 #include <string.h>
 
 // A small fixed table; a dev session generates a handful of keys, not millions.
@@ -40,6 +41,11 @@ void se_registry_add(SecKeyRef shadow, const uint8_t *handle, size_t handle_len,
                      SecKeyRef host_public, CFDataRef tag) {
   if (handle_len > sizeof(((shadow_entry *)0)->handle)) return;
   pthread_mutex_lock(&g_lock);
+  if (g_count >= SE_MAX_SHADOWS) {
+    // Fail-closed-safe but confusing: an unregistered shadow's later sign misses
+    // the registry and the public carrier refuses. Say why, once per key.
+    fprintf(stderr, "[simenclave] shadow registry full (%d); key unusable\n", SE_MAX_SHADOWS);
+  }
   if (g_count < SE_MAX_SHADOWS) {
     shadow_entry *e = &g_entries[g_count++];
     e->shadow = shadow;

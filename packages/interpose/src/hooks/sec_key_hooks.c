@@ -266,6 +266,8 @@ static int reduce_to_digest(SecKeyAlgorithm algorithm, CFDataRef dataToSign, uin
     return 0;
   }
   if (CFEqual(algorithm, kSecKeyAlgorithmECDSASignatureMessageX962SHA256)) {
+    // CC_LONG is 32-bit; a >4 GiB message would hash truncated bytes. Refuse it.
+    if (CFDataGetLength(dataToSign) > (CFIndex)UINT32_MAX) return -1;
     CC_SHA256(CFDataGetBytePtr(dataToSign), (CC_LONG)CFDataGetLength(dataToSign), out);
     *out_len = CC_SHA256_DIGEST_LENGTH;
     return 0;
@@ -363,6 +365,11 @@ static item_delete_fn orig_item_delete;
 // with an application tag. Anything else is out of M2's scope and passes through,
 // so non-SE keychain traffic is never perturbed. Whether the tag is actually ours
 // is decided by the registry, not here, so an unknown tag still passes through.
+// These predicates assume an application tag names at most one key: a tag that
+// collides with a separate, real keychain item routes to the registered shadow
+// and never reaches the original, so the real item is shadowed. Tags are meant
+// to be unique per key; a colliding setup is the developer's bug, but the
+// deviation is worth knowing about (M4 security review).
 static int is_se_key_ref_query(CFDictionaryRef query) {
   if (!query) return 0;
   const void *cls = CFDictionaryGetValue(query, kSecClass);

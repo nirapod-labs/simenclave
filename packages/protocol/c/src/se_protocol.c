@@ -247,7 +247,7 @@ static se_status r_head(reader *r, uint8_t *major, uint64_t *arg) {
   } else {
     return SE_ERR_MALFORMED;
   }
-  if (r->off + n > r->len) return SE_ERR_TRUNCATED;
+  if (n > r->len - r->off) return SE_ERR_TRUNCATED;
   uint64_t v = 0;
   for (size_t i = 0; i < n; i++) v = (v << 8) | r->p[r->off++];
   if (v < min) return SE_ERR_MALFORMED; // reject non-shortest-form (canonical)
@@ -292,7 +292,9 @@ static se_status r_map(reader *r, entry *entries, size_t max, size_t *count) {
       e->span = NULL;
       e->span_len = 0;
     } else if (vm == CBOR_BYTES || vm == CBOR_TEXT) {
-      if (r->off + va > r->len) return SE_ERR_TRUNCATED;
+      // Subtraction form: r->off + va would wrap for a hostile 64-bit length
+      // and defeat the bound. r->off <= r->len is a reader invariant.
+      if (va > r->len - r->off) return SE_ERR_TRUNCATED;
       e->span = r->p + r->off;
       e->span_len = (size_t)va;
       r->off += (size_t)va;

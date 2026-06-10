@@ -68,6 +68,44 @@ final class CBORTests: XCTestCase {
         }
     }
 
+    // The pre-auth crash class from the M4 security review: a hostile 64-bit
+    // length or count argument must throw, never trap, because the decoder runs
+    // on unauthenticated bytes before the token gate.
+
+    func testHostileByteLengthThrowsInsteadOfTrapping() {
+        // map(1) { 7: bytes(len 2^64 - 1) }: head 0x5B then eight 0xFF.
+        let payload = Data([0xA1, 0x07, 0x5B] + [UInt8](repeating: 0xFF, count: 8))
+        XCTAssertThrowsError(try CBORMap(decoding: payload)) { error in
+            XCTAssertEqual(error as? ProtocolError, .truncated)
+        }
+        // The Int.max edge: the checked offset + count addition must not trap either.
+        let intMax = Data([0xA1, 0x07, 0x5B, 0x7F] + [UInt8](repeating: 0xFF, count: 7))
+        XCTAssertThrowsError(try CBORMap(decoding: intMax)) { error in
+            XCTAssertEqual(error as? ProtocolError, .truncated)
+        }
+    }
+
+    func testHostileMapCountThrowsInsteadOfTrapping() {
+        // map(2^64 - 1): head 0xBB then eight 0xFF.
+        let payload = Data([0xBB] + [UInt8](repeating: 0xFF, count: 8))
+        XCTAssertThrowsError(try CBORMap(decoding: payload)) { error in
+            XCTAssertEqual(error as? ProtocolError, .truncated)
+        }
+    }
+
+    func testHostileIntegerOutsideInt64Throws() throws {
+        // map(1) { 10: uint(2^64 - 1) }: above Int64.max, must throw, not trap.
+        let big = try CBORMap(decoding: Data([0xA1, 0x0A, 0x1B] + [UInt8](repeating: 0xFF, count: 8)))
+        XCTAssertThrowsError(try big.int(10)) { error in
+            XCTAssertEqual(error as? ProtocolError, .malformed)
+        }
+        // map(1) { 10: negint(argument 2^64 - 1) }: encodes -2^64, below Int64.min.
+        let bigNeg = try CBORMap(decoding: Data([0xA1, 0x0A, 0x3B] + [UInt8](repeating: 0xFF, count: 8)))
+        XCTAssertThrowsError(try bigNeg.int(10)) { error in
+            XCTAssertEqual(error as? ProtocolError, .malformed)
+        }
+    }
+
     private func write(_ body: (inout CBORWriter) -> Void) -> Data {
         var writer = CBORWriter()
         body(&writer)
