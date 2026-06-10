@@ -50,8 +50,8 @@ int main(void) {
   }
 
   CFErrorRef verifyError = NULL;
-  bool verified = SecKeyVerifySignature(pub, kSecKeyAlgorithmECDSASignatureDigestX962SHA256,
-                                        digestData, signature, &verifyError);
+  Boolean verified = SecKeyVerifySignature(pub, kSecKeyAlgorithmECDSASignatureDigestX962SHA256,
+                                           digestData, signature, &verifyError);
   printf("verify: %d\n", verified);
   if (!verified) fails++;
 

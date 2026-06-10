@@ -41,8 +41,8 @@ int main(void) {
   }
 
   CFErrorRef verifyError = NULL;
-  bool verified = SecKeyVerifySignature(pub, kSecKeyAlgorithmECDSASignatureDigestX962SHA256,
-                                        digestData, signature, &verifyError);
+  Boolean verified = SecKeyVerifySignature(pub, kSecKeyAlgorithmECDSASignatureDigestX962SHA256,
+                                           digestData, signature, &verifyError);
   printf("SIM VERIFY: %d\n", verified);
   return verified ? 0 : 5;
 }
