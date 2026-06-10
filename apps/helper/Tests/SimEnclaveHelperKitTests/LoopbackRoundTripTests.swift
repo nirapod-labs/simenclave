@@ -73,6 +73,34 @@ final class LoopbackRoundTripTests: XCTestCase {
         }
     }
 
+    func testGetPublicKeyMatchesAndDeleteRevokes() throws {
+        let service = SecureEnclaveService()
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+
+        let token = CapabilityToken()
+        let listener = LoopbackListener(router: RequestRouter(service: service, gate: AuthGate(session: token)))
+        try listener.start()
+        defer { listener.stop() }
+        let client = LoopbackClient(port: listener.port)
+
+        guard case let .generated(handle, x963) = try client.send(.generate, token: token) else {
+            return XCTFail("expected a generated response")
+        }
+        guard case let .publicKey(fetched) = try client.send(.getPublicKey(handle: handle), token: token) else {
+            return XCTFail("expected a publicKey response")
+        }
+        XCTAssertEqual(fetched, x963, "GET_PUBKEY must return the key GENERATE handed back")
+
+        guard case .deleted = try client.send(.delete(handle: handle), token: token) else {
+            return XCTFail("expected a deleted response")
+        }
+        // After delete the handle is gone: errSecItemNotFound.
+        guard case let .failure(code, _) = try client.send(.getPublicKey(handle: handle), token: token) else {
+            return XCTFail("a deleted handle must fail")
+        }
+        XCTAssertEqual(code, -25300) // errSecItemNotFound
+    }
+
     private func verifies(digest: Data, signature: Data, x963: Data) -> Bool {
         let attributes: [String: Any] = [
             kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
