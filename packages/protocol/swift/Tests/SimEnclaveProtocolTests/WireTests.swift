@@ -5,11 +5,20 @@ import XCTest
 final class WireTests: XCTestCase {
     func testGenerateRequestRoundTrips() throws {
         let token = Data(repeating: 0xAB, count: 32)
-        let payload = Wire.encode(.generate, token: token)
-        // map(2) { 0: 2, 7: bstr(32) }
+        let payload = Wire.encode(.generate(keyClass: .silent), token: token)
+        // A silent GENERATE is map(2) { 0: 2, 7: bstr(32) }, with no key 9.
         XCTAssertEqual(payload.prefix(6), Data([0xA2, 0x00, 0x02, 0x07, 0x58, 0x20]))
-        XCTAssertEqual(try Wire.decodeRequest(payload), .generate)
+        XCTAssertEqual(try Wire.decodeRequest(payload), .generate(keyClass: .silent))
         XCTAssertEqual(try Wire.token(in: payload), token)
+    }
+
+    func testBiometryGenerateCarriesKeyClass() throws {
+        let token = Data(repeating: 0xAB, count: 32)
+        let payload = Wire.encode(.generate(keyClass: .biometry), token: token)
+        // A biometry GENERATE is map(3) and ends with key 9 = 1.
+        XCTAssertEqual(payload.prefix(3), Data([0xA3, 0x00, 0x02]))
+        XCTAssertEqual(payload.suffix(2), Data([0x09, 0x01]))
+        XCTAssertEqual(try Wire.decodeRequest(payload), .generate(keyClass: .biometry))
     }
 
     func testSignRequestRoundTrips() throws {
