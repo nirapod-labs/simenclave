@@ -2,7 +2,8 @@
 // comes back as a public-key-only shadow ref; the shadow's public-key and
 // signature calls route to the host. Every non-SE call passes through to the
 // saved original. The shadow cannot sign, so a routing miss fails loud rather
-// than ever emitting a software signature. M2 slice 3 adds the SecItem hooks.
+// than ever emitting a software signature. The SecItem hooks persist a key by tag
+// within the session; durable persistence across relaunches is M3.
 #include "../../include/simenclave_interpose.h"
 #include "../backend/hook_backend.h"
 #include "../registry/shadow_ref.h"
@@ -46,6 +47,21 @@ static int requests_secure_enclave(CFDictionaryRef parameters) {
     return dict_has_se_token((CFDictionaryRef)priv);
   }
   return 0;
+}
+
+// If the create asks for a permanent key with an application tag, return that tag
+// (borrowed) so the registry can find the key later by tag. The attributes live in
+// kSecPrivateKeyAttrs for a key creation, with the top level as a fallback.
+static CFDataRef extract_permanent_tag(CFDictionaryRef parameters) {
+  if (!parameters) return NULL;
+  CFDictionaryRef attrs = parameters;
+  const void *priv = CFDictionaryGetValue(parameters, kSecPrivateKeyAttrs);
+  if (priv && CFGetTypeID(priv) == CFDictionaryGetTypeID()) attrs = (CFDictionaryRef)priv;
+  const void *perm = CFDictionaryGetValue(attrs, kSecAttrIsPermanent);
+  if (!perm || !CFEqual(perm, kCFBooleanTrue)) return NULL;
+  const void *tag = CFDictionaryGetValue(attrs, kSecAttrApplicationTag);
+  if (tag && CFGetTypeID(tag) == CFDataGetTypeID()) return (CFDataRef)tag;
+  return NULL;
 }
 
 // Build a public SecKeyRef from a 65-byte uncompressed X9.63 point. The length
@@ -105,7 +121,8 @@ static SecKeyRef hook_create_random_key(CFDictionaryRef parameters, CFErrorRef *
     return NULL;
   }
 
-  se_registry_add(shadow, response.handle, response.handle_len, host_public);
+  CFDataRef tag = extract_permanent_tag(parameters); // borrowed; the registry retains it
+  se_registry_add(shadow, response.handle, response.handle_len, host_public, tag);
   CFRelease(host_public); // the registry holds its own reference
   g_stats.create_random_key++;
   return shadow; // +1 to the app; the registry holds a second reference
@@ -180,6 +197,102 @@ static CFDataRef hook_create_signature(SecKeyRef key, SecKeyAlgorithm algorithm,
   return CFDataCreate(NULL, response.signature, (CFIndex)response.signature_len);
 }
 
+// --- SecItem hooks: persistence by tag, in-session ---
+
+typedef OSStatus (*item_add_fn)(CFDictionaryRef, CFTypeRef *);
+typedef OSStatus (*item_copy_matching_fn)(CFDictionaryRef, CFTypeRef *);
+typedef OSStatus (*item_delete_fn)(CFDictionaryRef);
+
+static item_add_fn orig_item_add;
+static item_copy_matching_fn orig_item_copy_matching;
+static item_delete_fn orig_item_delete;
+
+// A query naming one of our keys: class key, returning a ref, at most one match,
+// with an application tag. Anything else is out of M2's scope and passes through,
+// so non-SE keychain traffic is never perturbed. Whether the tag is actually ours
+// is decided by the registry, not here, so an unknown tag still passes through.
+static int is_se_key_ref_query(CFDictionaryRef query) {
+  if (!query) return 0;
+  const void *cls = CFDictionaryGetValue(query, kSecClass);
+  if (!cls || !CFEqual(cls, kSecClassKey)) return 0;
+  const void *ret = CFDictionaryGetValue(query, kSecReturnRef);
+  if (!ret || !CFEqual(ret, kCFBooleanTrue)) return 0;
+  const void *limit = CFDictionaryGetValue(query, kSecMatchLimit);
+  if (limit && !CFEqual(limit, kSecMatchLimitOne)) return 0; // absent means one
+  const void *tag = CFDictionaryGetValue(query, kSecAttrApplicationTag);
+  return tag != NULL && CFGetTypeID(tag) == CFDataGetTypeID();
+}
+
+// A delete query naming one of our keys: class key with a tag. Return type and
+// match limit do not apply to a delete.
+static int is_se_key_delete(CFDictionaryRef query) {
+  if (!query) return 0;
+  const void *cls = CFDictionaryGetValue(query, kSecClass);
+  if (!cls || !CFEqual(cls, kSecClassKey)) return 0;
+  const void *tag = CFDictionaryGetValue(query, kSecAttrApplicationTag);
+  return tag != NULL && CFGetTypeID(tag) == CFDataGetTypeID();
+}
+
+static OSStatus hook_item_add(CFDictionaryRef attributes, CFTypeRef *result) {
+  if (!orig_item_add) return errSecNotAvailable; // install-window guard
+  // The explicit persist of a key we issued: attach its tag and report success,
+  // since the key lives in the host SEP, not the guest keychain. Anything else
+  // passes through untouched.
+  if (attributes) {
+    const void *ref = CFDictionaryGetValue(attributes, kSecValueRef);
+    const void *tag = CFDictionaryGetValue(attributes, kSecAttrApplicationTag);
+    if (ref && se_registry_is_shadow((SecKeyRef)ref) && tag &&
+        CFGetTypeID(tag) == CFDataGetTypeID()) {
+      se_registry_set_tag((SecKeyRef)ref, (CFDataRef)tag);
+      return errSecSuccess;
+    }
+  }
+  return orig_item_add(attributes, result);
+}
+
+static OSStatus hook_item_copy_matching(CFDictionaryRef query, CFTypeRef *result) {
+  if (!orig_item_copy_matching) return errSecNotAvailable; // install-window guard
+  if (is_se_key_ref_query(query)) {
+    CFDataRef tag = (CFDataRef)CFDictionaryGetValue(query, kSecAttrApplicationTag);
+    SecKeyRef shadow = NULL;
+    uint8_t handle[64];
+    size_t handle_len = 0;
+    if (se_registry_find_by_tag(tag, &shadow, handle, sizeof(handle), &handle_len)) {
+      if (result) {
+        *result = shadow; // +1 from find_by_tag, handed to the caller
+      } else if (shadow) {
+        CFRelease(shadow);
+      }
+      return errSecSuccess;
+    }
+  }
+  return orig_item_copy_matching(query, result); // saved original, never the symbol
+}
+
+static OSStatus hook_item_delete(CFDictionaryRef query) {
+  if (!orig_item_delete) return errSecNotAvailable; // install-window guard
+  if (is_se_key_delete(query)) {
+    CFDataRef tag = (CFDataRef)CFDictionaryGetValue(query, kSecAttrApplicationTag);
+    SecKeyRef shadow = NULL;
+    uint8_t handle[64];
+    size_t handle_len = 0;
+    if (se_registry_find_by_tag(tag, &shadow, handle, sizeof(handle), &handle_len)) {
+      se_response response;
+      se_status st = se_client_delete(handle, handle_len, &response);
+      se_registry_remove(shadow);
+      CFRelease(shadow); // find_by_tag retained it
+      if (st != SE_OK) return errSecNotAvailable;
+      if (response.kind != SE_RESP_DELETED) {
+        return (response.kind == SE_RESP_ERROR && response.error_code != 0)
+                   ? response.error_code
+                   : errSecInternalComponent;
+      }
+      return errSecSuccess;
+    }
+  }
+  return orig_item_delete(query); // saved original, never the symbol
+}
+
 int simenclave_install_hooks(void) {
   const se_hook_backend *backend = se_default_backend();
   struct {
@@ -190,6 +303,9 @@ int simenclave_install_hooks(void) {
       {"SecKeyCreateRandomKey", (void *)hook_create_random_key, (void **)&orig_create_random_key},
       {"SecKeyCopyPublicKey", (void *)hook_copy_public_key, (void **)&orig_copy_public_key},
       {"SecKeyCreateSignature", (void *)hook_create_signature, (void **)&orig_create_signature},
+      {"SecItemAdd", (void *)hook_item_add, (void **)&orig_item_add},
+      {"SecItemCopyMatching", (void *)hook_item_copy_matching, (void **)&orig_item_copy_matching},
+      {"SecItemDelete", (void *)hook_item_delete, (void **)&orig_item_delete},
   };
   int failures = 0;
   for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {

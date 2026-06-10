@@ -105,6 +105,70 @@ int main(void) {
     fails++;
   }
 
+  // SecItem tag round-trip: a key created permanent with a tag is found by that
+  // tag, signs through the host, is deleted by tag, and is gone afterward.
+  uint8_t tag_bytes[] = {'s', 'e', '.', 'r', 'o', 'u', 'n', 'd'};
+  CFDataRef tag = CFDataCreate(NULL, tag_bytes, sizeof(tag_bytes));
+  const void *priv_keys[] = {kSecAttrIsPermanent, kSecAttrApplicationTag};
+  const void *priv_values[] = {kCFBooleanTrue, tag};
+  CFDictionaryRef priv =
+      CFDictionaryCreate(NULL, priv_keys, priv_values, 2, &kCFTypeDictionaryKeyCallBacks,
+                         &kCFTypeDictionaryValueCallBacks);
+  const void *perm_keys[] = {kSecAttrTokenID, kSecPrivateKeyAttrs};
+  const void *perm_values[] = {kSecAttrTokenIDSecureEnclave, priv};
+  CFDictionaryRef perm_params =
+      CFDictionaryCreate(NULL, perm_keys, perm_values, 2, &kCFTypeDictionaryKeyCallBacks,
+                         &kCFTypeDictionaryValueCallBacks);
+  SecKeyRef perm_key = SecKeyCreateRandomKey(perm_params, NULL);
+  if (!perm_key) {
+    printf("FAIL: permanent SE create returned NULL\n");
+    fails++;
+  }
+
+  const void *q_keys[] = {kSecClass, kSecAttrApplicationTag, kSecReturnRef, kSecMatchLimit};
+  const void *q_values[] = {kSecClassKey, tag, kCFBooleanTrue, kSecMatchLimitOne};
+  CFDictionaryRef query = CFDictionaryCreate(
+      NULL, q_keys, q_values, 4, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+  SecKeyRef found = NULL;
+  OSStatus findRc = SecItemCopyMatching(query, (CFTypeRef *)&found);
+  printf("find by tag: %d\n", findRc == errSecSuccess && found != NULL);
+  if (findRc != errSecSuccess || !found) {
+    fails++;
+  } else {
+    SecKeyRef foundPub = SecKeyCopyPublicKey(found);
+    CFDataRef foundSig = SecKeyCreateSignature(
+        found, kSecKeyAlgorithmECDSASignatureDigestX962SHA256, digestData, NULL);
+    Boolean foundOk =
+        foundSig && SecKeyVerifySignature(foundPub, kSecKeyAlgorithmECDSASignatureDigestX962SHA256,
+                                          digestData, foundSig, NULL);
+    printf("found key signs: %d\n", foundOk);
+    if (!foundOk) fails++;
+    if (foundPub) CFRelease(foundPub);
+    if (foundSig) CFRelease(foundSig);
+  }
+  if (found) CFRelease(found);
+
+  const void *d_keys[] = {kSecClass, kSecAttrApplicationTag};
+  const void *d_values[] = {kSecClassKey, tag};
+  CFDictionaryRef del_query = CFDictionaryCreate(
+      NULL, d_keys, d_values, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+  OSStatus delRc = SecItemDelete(del_query);
+  printf("delete by tag: %d\n", delRc == errSecSuccess);
+  if (delRc != errSecSuccess) fails++;
+
+  SecKeyRef gone = NULL;
+  OSStatus goneRc = SecItemCopyMatching(query, (CFTypeRef *)&gone);
+  printf("gone after delete: %d\n", goneRc != errSecSuccess && gone == NULL);
+  if (goneRc == errSecSuccess && gone) fails++;
+  if (gone) CFRelease(gone);
+
+  if (perm_key) CFRelease(perm_key);
+  if (tag) CFRelease(tag);
+  if (priv) CFRelease(priv);
+  if (perm_params) CFRelease(perm_params);
+  if (query) CFRelease(query);
+  if (del_query) CFRelease(del_query);
+
   printf(fails ? "MECHANISM C: %d failure(s)\n" : "MECHANISM C: ok\n", fails);
   return fails ? 1 : 0;
 }
