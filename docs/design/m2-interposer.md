@@ -206,11 +206,13 @@ through a saved original, never a hooked symbol. M3, when it hooks
 `SecKeyCopyAttributes`, inherits the same rule: the validation step must not call a
 function it hooks.
 
-**A hook called before its original is captured passes through.** The constructor
-installs hooks one symbol at a time, and a Security initializer firing mid-install
-could call a replacement whose `orig_*` is still null. Every hook null-checks its
-saved original and, if it is not yet set, calls the real symbol directly, so the
-install window cannot crash the app.
+**A hook called before its original is captured fails closed.** The constructor
+installs hooks one symbol at a time. Under the Dobby backend each symbol's original
+is captured before that symbol is patched, so a hook never runs with a null
+original in normal operation. The null-check is insurance for a non-atomic backend
+behind the seam: if a hook ever fired before its original were set, it returns a
+populated-error failure rather than dereferencing null, which is safe and fails
+closed rather than crashing or silently substituting.
 
 **A routed failure is a faithful failure.** A native `SecKeyCreateSignature` failure
 always populates its `CFErrorRef`; the M0 routed path returns null and leaves
