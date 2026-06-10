@@ -432,8 +432,9 @@ interposer, which M2 introduces. So the interposer reports an app identifier on
 connect and the menubar surfaces an approval. It stays what M1's design said it is:
 a convenience, not an access-control boundary, because the identifier is
 guest-reported and a token holder could forge it. The token is the boundary; the
-prompt is there so the developer sees what is asking. Because it is non-load-bearing,
-it can slip to M3 without touching the M2 exit criterion.
+prompt is there so the developer sees what is asking. Because it is non-load-bearing
+and a foreground GUI affordance, it moved to M3, where it pairs with the biometry
+prompt; the M2 exit criterion does not include it.
 
 ## Threat model and custody, M2
 
@@ -524,8 +525,10 @@ the safety spine first, then features, then the dev ergonomics.
    probe. Green when the invariant test passes, a bare carrier returns null when
    asked to sign, and the probe documents that CryptoKit's `SecureEnclave.P256` falls
    back to software in the simulator and so is not bridged.
-5. **Scheme injection and the doctor.** `scripts/set-scheme-env.sh` wires
-   `DYLD_INSERT_LIBRARIES`, the port, and the token into a real app's scheme; `HELLO`
-   dispatch and the `doctor` handshake land; the menubar approval prompt rides the
-   reported app id. Green when a real sample app in the simulator, scheme wired,
-   signs with the host SEP, and `doctor` negotiates the version.
+5. **Scheme injection, HELLO, and the inert load.** `scripts/set-scheme-env.sh`
+   emits the scheme environment (the dylib, the port, the token) from a running
+   helper; `HELLO` dispatch lands and the client round-trip exercises the handshake;
+   the constructor is inert without configuration. The polished `simenclavectl
+   init`/`doctor` and an example app are M5, and the approval prompt moved to M3.
+   Green when `HELLO` negotiates the version over the loopback channel and the C and
+   Swift suites stay green.

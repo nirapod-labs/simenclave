@@ -146,3 +146,11 @@ se_status se_client_delete(const uint8_t *handle, size_t handle_len, se_response
       payload, se_encode_delete(token, sizeof(token), handle, handle_len, payload, sizeof(payload)),
       out);
 }
+
+se_status se_client_hello(uint64_t version, se_response *out) {
+  uint8_t token[32];
+  if (read_token(token) != 0) return SE_ERR_TRUNCATED;
+  uint8_t payload[128];
+  return do_request(payload,
+                    se_encode_hello(token, sizeof(token), version, payload, sizeof(payload)), out);
+}

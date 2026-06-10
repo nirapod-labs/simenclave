@@ -28,6 +28,7 @@ typedef enum {
   SE_RESP_SIGNED,
   SE_RESP_PUBKEY,
   SE_RESP_DELETED,
+  SE_RESP_HELLO,
   SE_RESP_ERROR,
 } se_resp_kind;
 
@@ -40,7 +41,8 @@ typedef struct {
   uint8_t signature[256];
   size_t signature_len;
   char error[256];
-  int error_code; // the helper's OSStatus on an error response, 0 otherwise
+  int error_code;   // the helper's OSStatus on an error response, 0 otherwise
+  uint64_t version; // the protocol version on a HELLO response
 } se_response;
 
 // Encode a GENERATE request payload (CBOR, no frame), carrying the capability
@@ -59,6 +61,10 @@ int se_encode_get_pubkey(const uint8_t *token, size_t token_len, const uint8_t *
 // Encode a DELETE request payload carrying the token and a handle.
 int se_encode_delete(const uint8_t *token, size_t token_len, const uint8_t *handle,
                      size_t handle_len, uint8_t *out, size_t cap);
+
+// Encode a HELLO request payload carrying the token and the protocol version.
+int se_encode_hello(const uint8_t *token, size_t token_len, uint64_t version, uint8_t *out,
+                    size_t cap);
 
 // Decode a response payload into out, dispatching on op and status.
 se_status se_decode_response(const uint8_t *payload, size_t len, se_response *out);

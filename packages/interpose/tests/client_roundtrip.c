@@ -35,6 +35,11 @@ static SecKeyRef public_key_from(const uint8_t *x963, size_t len) {
 }
 
 int main(void) {
+  // HELLO first: the doctor handshake negotiates the protocol version.
+  se_response hello;
+  CHECK(se_client_hello(1, &hello) == SE_OK && hello.kind == SE_RESP_HELLO && hello.version == 1,
+        "hello negotiates v1");
+
   se_response gen;
   CHECK(se_client_generate(&gen) == SE_OK && gen.kind == SE_RESP_GENERATED, "generate");
   if (fails) {

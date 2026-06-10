@@ -58,21 +58,21 @@ Done: the helper generates, signs, reads, deletes, and authenticates over loopba
 
 ### M2: the interposer
 
-Status: not started. Target: 2026-06-28 to 07-09. Design: `docs/design/m2-interposer.md`.
+Status: done (2026-06-10). Target was 2026-06-28 to 07-09. Design: `docs/design/m2-interposer.md`.
 
-The heart of the tool, and the most code. M0 scaffolded the shape, the seam, the three `SecKey` hooks, a basic registry, and the token transport; M2 turns that spike into the real client.
+The heart of the tool, and the most code. M0 scaffolded the shape, the seam, the three `SecKey` hooks, a basic registry, and the token transport; M2 turned that spike into the real client.
 
-- [ ] The `HookBackend` seam (`resolve`/`install`, Dobby behind it) is in from M0; M2 keeps every hook naming the seam and no library directly
-- [ ] Hooks for `SecKeyCreateRandomKey`, `SecKeyCreateSignature`, `SecKeyCopyPublicKey` (in from M0), with the shadow hardened to a public-key-only carrier so a routing miss fails loud, never a silent software signature
-- [ ] Hooks for `SecItemAdd`, `SecItemCopyMatching`, `SecItemDelete`, so keys persist by tag (in-session; durable across relaunches is M3)
-- [ ] Passthrough: only Secure Enclave ops get redirected, every other call goes straight to the saved original, byte-identical
-- [ ] The shadow-ref registry retains its shadows so a freed ref's address cannot be reused and misrouted, maps each `SecKeyRef` to its host handle and cached public key, and carries the key class and the `SecItem` tag
-- [ ] The transport client (token auth and message-versus-digest are in from M0) grows `GET_PUBKEY` and `DELETE`, and the C codec catches up to the helper
-- [ ] `HELLO` dispatch in the helper and the `doctor` handshake that calls it (moved from M1)
-- [ ] Scheme injection of `DYLD_INSERT_LIBRARIES`, via `scripts/set-scheme-env.sh`; the `simenclavectl init` polish is M5
-- [ ] The menubar's per-app approval prompt, keyed on the app id the interposer now reports (moved from M1; a convenience, not an access boundary)
+- [x] The `HookBackend` seam (`resolve`/`install`, Dobby behind it) is in from M0; every hook names the seam, no library directly
+- [x] Hooks for `SecKeyCreateRandomKey`, `SecKeyCreateSignature`, `SecKeyCopyPublicKey`, with the shadow hardened to a public-key-only carrier (asserted unable to sign) so a routing miss fails loud, never a silent software signature, and an `X962` SHA-256 algorithm allowlist that refuses what it cannot map
+- [x] Hooks for `SecItemAdd`, `SecItemCopyMatching`, `SecItemDelete`, so keys persist by tag (in-session; durable across relaunches is M3)
+- [x] Passthrough: only Secure Enclave ops get redirected, every other call goes straight to the saved original, byte-identical, with a first-class invariant test
+- [x] The shadow-ref registry retains its shadows so a freed ref's address cannot be reused and misrouted, maps each `SecKeyRef` to its host handle and cached public key, and carries the `SecItem` tag (the key class rides M3, since the create-time access control is opaque to the interposer)
+- [x] The transport client grows `GET_PUBKEY` and `DELETE`, and the C codec catches up to the helper
+- [x] `HELLO` dispatch in the helper and the handshake that exercises it; the polished `simenclavectl doctor` is M5
+- [x] Scheme injection of `DYLD_INSERT_LIBRARIES`, via `scripts/set-scheme-env.sh`; the `simenclavectl init` polish is M5
+- [x] The constructor is inert without configuration, defense in depth around the fence
 
-Done when the passthrough invariant holds (a non-SE keychain call is byte-identical with and without the interposer), a tag round-trips through `SecItem`, and CryptoKit code that bottoms out in the `SecKey` C API is caught. The M2 probe found that CryptoKit's `SecureEnclave.P256` does not bottom out there in the simulator, it falls back to a software key, so it is not bridged; the `SecKey` C API is the supported real-hardware path.
+Done: the passthrough invariant holds (a first-class test and mechanism C), a tag round-trips through `SecItem`, and the `SecKey` C API is caught end to end (mechanism D). The probe found CryptoKit's `SecureEnclave.P256` is not bridged in the simulator, it falls back to a software key, so the `SecKey` C API is the supported real-hardware path. The per-app approval prompt moved to M3, where it pairs with the biometry prompt as foreground GUI.
 
 ### M3: fidelity and biometry
 
@@ -81,7 +81,8 @@ Status: not started. Target: 2026-07-10 to 07-16.
 - [ ] Biometry-gated keys: the helper brings itself foreground and runs `LAContext`, so you get a real Mac Touch ID prompt
 - [ ] Error parity: a cancel or a failed biometric maps to the exact `OSStatus` a device returns, so `do/catch` written for the device behaves the same here
 - [ ] Persistence across relaunches, so a known fixture key is still there next run
-- [ ] The secondary hooks that keep the shadow ref honest: `SecKeyCopyExternalRepresentation` returns the not-exportable error a real SE key does, and `SecKeyCopyAttributes` reports the SE token
+- [ ] The secondary hooks that keep the shadow ref honest: `SecKeyCopyExternalRepresentation` returns the not-exportable error a real SE key does, and `SecKeyCopyAttributes` reports the SE token and the private key class
+- [ ] The menubar's per-app approval prompt, keyed on an app id the interposer reports, foreground GUI that pairs with the biometric prompt here (moved from M2; a convenience, not an access boundary)
 
 Done when a biometric sign prompts Mac Touch ID, a cancel surfaces the device error, and a key generated last run is still usable this run.
 

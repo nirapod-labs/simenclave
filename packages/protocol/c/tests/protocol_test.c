@@ -73,6 +73,18 @@ int main(void) {
   CHECK(se_decode_response(del_resp, sizeof(del_resp), &resp) == SE_OK, "decode deleted rc");
   CHECK(resp.kind == SE_RESP_DELETED, "deleted kind");
 
+  // HELLO { 0:1, 7:token(32), 8:1 } in canonical form.
+  n = se_encode_hello(token, sizeof(token), 1, buf, sizeof(buf));
+  uint8_t hello_prefix[] = {0xA3, 0x00, 0x01, 0x07, 0x58, 0x20};
+  CHECK(n == 40 && memcmp(buf, hello_prefix, sizeof(hello_prefix)) == 0 &&
+            memcmp(buf + 6, token, 32) == 0 && buf[38] == 0x08 && buf[39] == 0x01,
+        "hello bytes");
+
+  // Decode a HELLO-ok response { 0:1, 1:0, 8:1 }.
+  uint8_t hello_resp[] = {0xA3, 0x00, 0x01, 0x01, 0x00, 0x08, 0x01};
+  CHECK(se_decode_response(hello_resp, sizeof(hello_resp), &resp) == SE_OK, "decode hello rc");
+  CHECK(resp.kind == SE_RESP_HELLO && resp.version == 1, "hello fields");
+
   // Decode an ERROR response carrying "no".
   uint8_t err_resp[] = {0xA3, 0x00, 0x02, 0x01, 0x01, 0x06, 0x62, 'n', 'o'};
   CHECK(se_decode_response(err_resp, sizeof(err_resp), &resp) == SE_OK, "decode error rc");
