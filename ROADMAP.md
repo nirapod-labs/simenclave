@@ -16,17 +16,17 @@ Two tests decide whether we're done. Parity: a signature made in the simulator t
 
 ### Phase 0: bootstrap
 
-Status: in progress. Target: by 2026-06-11.
+Status: done (2026-06-10). Target was by 2026-06-11.
 
 Stand up the repo so every later milestone is a PR on green CI. Nothing here touches keys or signing. It's all scaffolding.
 
-- [ ] Create the repo, Apache-2.0, `main` protected
-- [ ] pnpm workspace and turbo; lefthook and commitlint; biome; swiftlint and swiftformat; clang-format and clang-tidy
-- [ ] CI skeleton: a portable lane (any runner), a hardware lane (self-hosted Mac with a real SE), a fence check, a release workflow
-- [ ] PR template, CODEOWNERS, CONTRIBUTING, and a SECURITY.md that leads with "dev-only, never ships"
-- [ ] XcodeGen `project.yml` stubs for the helper and the example apps
+- [x] Create the repo, Apache-2.0. Branch protection is unavailable on the current plan, so direct pushes to `main` are blocked host-side by a lefthook guard; the PR-driven rule holds either way
+- [x] pnpm workspace and turbo; lefthook and commitlint; biome; swiftlint and swiftformat; clang-format and clang-tidy
+- [x] CI skeleton: a portable lane (any runner), a hardware lane (self-hosted Mac with a real SE), a fence check, a release workflow
+- [x] PR template, CODEOWNERS, CONTRIBUTING, and a SECURITY.md that leads with "dev-only, never ships"
+- [x] XcodeGen `project.yml` stub for the helper; the example apps land with theirs in M5
 
-Done when CI is green on an empty scaffold and branch protection plus conventional commits are enforced.
+Done: CI green on the scaffold, conventional commits enforced by commitlint on every PR.
 
 ### M0: prove it
 
@@ -76,15 +76,15 @@ Done: the passthrough invariant holds (a first-class test and mechanism C), a ta
 
 ### M3: fidelity and biometry
 
-Status: not started. Target: 2026-07-10 to 07-16. Design: `docs/design/m3-fidelity-biometry.md`.
+Status: done (2026-06-10). Target was 2026-07-10 to 07-16. Design: `docs/design/m3-fidelity-biometry.md`.
 
-- [ ] Biometry-gated keys: the interposer captures the access control at its source (it hooks `SecAccessControlCreateWithFlags`, since the `SecAccessControlRef` is opaque) and relays it, and the helper brings itself foreground and runs `LAContext`, so a biometric sign raises a real Mac Touch ID prompt
-- [ ] Error parity: the helper classifies its macOS failure and maps it to the exact `(domain, code)` a device returns, from a committed device-reference table, so `do/catch` written for the device behaves the same here
-- [ ] In-session persistence already holds (a fixture key survives a simulator-app relaunch while the helper runs). Durable across-restart persistence is deferred to M5: a spike proved a permanent Secure Enclave keychain key needs a signed, provisioned helper, which is the Developer ID work M5 owns. The `FIND_BY_TAG` op and the namespaced-key, access-group-confinement design are in place as groundwork
-- [ ] The secondary hooks that keep the shadow ref honest: `SecKeyCopyExternalRepresentation` returns the not-exportable error a real SE key does, and `SecKeyCopyAttributes` reports the SE token and the private key class
-- [ ] The menubar's per-app approval prompt, keyed on an app id the interposer reports, foreground GUI that pairs with the biometric prompt here (moved from M2; a convenience, not an access boundary)
+- [x] Biometry-gated keys: the interposer captures the access control at its source (it hooks `SecAccessControlCreateWithFlags`, since the `SecAccessControlRef` is opaque) and relays it, and the helper brings itself foreground and signs on the connection thread, so a biometric sign raises a real Mac Touch ID prompt. The helper serves connections concurrently so a parked prompt stalls nothing, and prompts serialize so there is one sheet at a time
+- [x] Error parity: the helper classifies its macOS failure and maps it to the `(domain, code)` a device returns, from a committed device-reference table, so `do/catch` written for the device behaves the same here. The table's entries are seeded from documentation and tagged `device-confirm`; capturing them from a real device is the M4 parity work
+- [x] In-session persistence already holds (a fixture key survives a simulator-app relaunch while the helper runs). Durable across-restart persistence is deferred to M5: a spike proved a permanent Secure Enclave keychain key needs a signed, provisioned helper, which is the Developer ID work M5 owns. The `FIND_BY_TAG` op and the namespaced-key, access-group-confinement design are in place as groundwork
+- [x] The secondary hooks that keep the shadow ref honest: `SecKeyCopyExternalRepresentation` returns the not-exportable error a real SE key does, and `SecKeyCopyAttributes` reports the SE token and the private key class
+- [x] The menubar's per-app approval prompt, keyed on an app id the interposer reports, foreground GUI that pairs with the biometric prompt here (moved from M2; a convenience, not an access boundary)
 
-Done when a biometric sign prompts Mac Touch ID, a cancel surfaces the device error, and a key generated last run is still usable this run.
+Done: a biometric sign prompts Mac Touch ID, a cancel surfaces the device error envelope, and a key survives an app relaunch within the session. The across-restart half of persistence moved to M5 with the signing it depends on, and the exact device error codes carry a `device-confirm` flag until the M4 device run.
 
 ### M4: parity and the fence
 

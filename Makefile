@@ -15,7 +15,7 @@ C_FILES    := $(shell find packages/interpose/src packages/interpose/include pac
                             -type f \( -name '*.c' -o -name '*.h' \) 2>/dev/null)
 
 .PHONY: help bootstrap configure build dylib helper test test-portable \
-        mechanism-c mechanism-d cryptokit-probe lint format clean
+        fence mechanism-c mechanism-d cryptokit-probe lint format clean
 
 help: ## Show targets
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-14s %s\n", $$1, $$2}'
@@ -43,14 +43,19 @@ dylib: configure ## Build just the injectable interposer dylib (sim slice)
 helper: ## Build just the helper executable
 	cd apps/helper && xcrun swift build
 
-test: build ## Run the C tests (ctest), the Swift tests, and mechanism C
+test: build ## Run the C tests (ctest), the Swift tests, the static fence, and mechanism C
 	ctest --test-dir build --output-on-failure
 	@for p in $(SWIFT_PKGS); do echo "== swift test: $$p =="; ( cd $$p && xcrun swift test ) || exit 1; done
+	@bash scripts/fence-check.sh
 	@$(MAKE) mechanism-c
 
-test-portable: ## The subset that runs on any runner (no SEP, no Xcode): C codec + biome
+test-portable: ## The subset that runs on any runner (no SEP, no Xcode): C codec + biome + fence
 	ctest --test-dir build --output-on-failure -R protocol_codec
 	pnpm exec biome check .
+	bash scripts/fence-check.sh
+
+fence: ## The static fence assertions; the runtime legs ride mechanism-d
+	bash scripts/fence-check.sh
 
 mechanism-c: ## Host integration proof: hooks route to the helper, signature verifies
 	bash packages/interpose/tests/run-mechanism-c.sh

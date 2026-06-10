@@ -1,15 +1,26 @@
 name: fence
 
-# The safety gate. Asserts a release build cannot load the interposer: the
-# release scheme sets no DYLD_INSERT_LIBRARIES, and no interposer dylib is
-# bundled. With the variable unset, the simulator shows the stock failing-SE
-# behavior, which proves the app is not coupled to the tool. Implemented in M4.
+# The safety gate. The fence: a release build sets no DYLD_INSERT_LIBRARIES and
+# bundles no interposer dylib, so SimEnclave cannot ship inside an app. The
+# static half (scripts/fence-check.sh) runs here on every PR and push: injection
+# stays debug-scheme-only, no project artifact bundles the dylib, and the
+# injection variable stays inside a reviewed allowlist. The runtime half, that
+# an uninjected or unconfigured app shows the stock failing-SE behavior, needs a
+# Mac with a simulator and is asserted by run-mechanism-d.sh on the hardware
+# lane. The release workflow runs this same check before packaging.
 
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   fence:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Placeholder. Implement the no-env-var and no-bundled-dylib assertions in M4."
+      - uses: actions/checkout@v4
+      - run: bash scripts/fence-check.sh
