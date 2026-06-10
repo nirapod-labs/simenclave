@@ -25,6 +25,7 @@ void se_registry_add(SecKeyRef shadow, const uint8_t *handle, size_t handle_len,
   if (g_count < SE_MAX_SHADOWS) {
     shadow_entry *e = &g_entries[g_count++];
     e->shadow = shadow;
+    if (shadow) CFRetain(shadow);
     memcpy(e->handle, handle, handle_len);
     e->handle_len = handle_len;
     e->host_public = host_public;
@@ -42,7 +43,10 @@ int se_registry_lookup(SecKeyRef key, uint8_t *handle, size_t cap, size_t *handl
       if (g_entries[i].handle_len <= cap) {
         memcpy(handle, g_entries[i].handle, g_entries[i].handle_len);
         *handle_len = g_entries[i].handle_len;
-        if (host_public) *host_public = g_entries[i].host_public;
+        if (host_public && g_entries[i].host_public) {
+          *host_public = g_entries[i].host_public;
+          CFRetain(g_entries[i].host_public); // +1 under the lock; caller releases
+        }
         found = 1;
       }
       break;
@@ -63,4 +67,17 @@ int se_registry_is_shadow(SecKeyRef key) {
   }
   pthread_mutex_unlock(&g_lock);
   return found;
+}
+
+void se_registry_remove(SecKeyRef shadow) {
+  pthread_mutex_lock(&g_lock);
+  for (size_t i = 0; i < g_count; i++) {
+    if (g_entries[i].shadow == shadow) {
+      if (g_entries[i].shadow) CFRelease(g_entries[i].shadow);
+      if (g_entries[i].host_public) CFRelease(g_entries[i].host_public);
+      g_entries[i] = g_entries[--g_count]; // move the last entry into the gap
+      break;
+    }
+  }
+  pthread_mutex_unlock(&g_lock);
 }

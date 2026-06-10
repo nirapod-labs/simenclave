@@ -3,6 +3,7 @@
 // shortest form, the canonical encoding, so it byte-matches the Swift codec.
 #include "se_protocol.h"
 
+#include <limits.h>
 #include <string.h>
 
 // keys
@@ -15,6 +16,7 @@ enum {
   K_SIG = 5,
   K_ERR = 6,
   K_TOKEN = 7,
+  K_ERR_CODE = 10,
 };
 // ops and status
 enum { OP_GENERATE = 2, OP_GET_PUBKEY = 3, OP_SIGN = 4, OP_DELETE = 5, ST_OK = 0, ST_ERROR = 1 };
@@ -235,6 +237,16 @@ se_status se_decode_response(const uint8_t *payload, size_t len, se_response *ou
 
   if (status->uintval == ST_ERROR) {
     out->kind = SE_RESP_ERROR;
+    out->error_code = 0;
+    const entry *code = find(entries, count, K_ERR_CODE);
+    // Bound the attacker-controlled integer before the signed cast: an out-of-range
+    // code stays 0, which the hooks treat as "no specific code" and map to a
+    // generic failure. No OSStatus is anywhere near these limits.
+    if (code && code->major == CBOR_NEGINT && code->uintval < INT_MAX) {
+      out->error_code = -(int)(code->uintval + 1); // CBOR negint n encodes -1 - n
+    } else if (code && code->major == CBOR_UINT && code->uintval <= INT_MAX) {
+      out->error_code = (int)code->uintval;
+    }
     const entry *msg = find(entries, count, K_ERR);
     size_t n = 0;
     if (msg && msg->major == CBOR_TEXT) {

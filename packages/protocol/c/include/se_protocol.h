@@ -40,6 +40,7 @@ typedef struct {
   uint8_t signature[256];
   size_t signature_len;
   char error[256];
+  int error_code; // the helper's OSStatus on an error response, 0 otherwise
 } se_response;
 
 // Encode a GENERATE request payload (CBOR, no frame), carrying the capability
