@@ -10,8 +10,9 @@
 static int connect_helper(void) {
   const char *env = getenv("SIMENCLAVE_PORT");
   if (!env) return -1;
-  int port = atoi(env);
-  if (port <= 0 || port > 65535) return -1;
+  char *end = NULL;
+  long port = strtol(env, &end, 10);
+  if (end == env || *end != '\0' || port <= 0 || port > 65535) return -1;
 
   int fd = socket(AF_INET, SOCK_STREAM, 0);
   if (fd < 0) return -1;
