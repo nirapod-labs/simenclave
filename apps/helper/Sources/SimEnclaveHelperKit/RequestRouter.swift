@@ -2,8 +2,8 @@ import Foundation
 import SimEnclaveHostCore
 import SimEnclaveProtocol
 
-/// The OSStatus codes the helper returns. M1 lands the auth failure and a
-/// generic failure; the full device-to-code table is M3.
+/// The OSStatus codes the helper returns for non-biometric failures. The biometric
+/// device-to-error table is `DeviceError` (slice 5).
 enum OSStatusCode {
     static let authFailed: Int64 = -25293 // errSecAuthFailed
     static let itemNotFound: Int64 = -25300 // errSecItemNotFound
@@ -61,12 +61,18 @@ public struct RequestRouter: Sendable {
                 try service.delete(handle: handle)
                 return .deleted
             case .findByTag:
-                // The durable keychain lookup is M3 slice 5; until the helper keeps a
-                // persistent store, a find by tag always misses.
+                // Durable persistence is deferred to M5 (it needs a signed helper); until
+                // the helper keeps a persistent store, a find by tag always misses.
                 return .failure(code: OSStatusCode.itemNotFound, message: "no persisted key")
             }
         } catch SecureEnclaveService.Failure.unknownHandle {
             return .failure(code: OSStatusCode.itemNotFound, message: "unknown handle")
+        } catch let failure as BiometricFailure {
+            // Map the category to the device's error envelope, so the interposer rebuilds
+            // the CFError a device returns and an app's do/catch reads the same code.
+            let envelope = DeviceError.envelope(for: failure)
+            return .failure(code: envelope.code, message: "biometric prompt: \(failure)",
+                            domain: envelope.domain)
         } catch {
             return .failure(code: OSStatusCode.internalError, message: String(describing: error))
         }

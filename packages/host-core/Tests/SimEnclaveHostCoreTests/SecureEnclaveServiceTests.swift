@@ -63,7 +63,7 @@ final class SecureEnclaveServiceTests: XCTestCase {
     }
 
     func testPromptedSignDenialIsAFailure() throws {
-        let gate = MockBiometricGate(.deny)
+        let gate = MockBiometricGate(.fail(.userCanceled))
         let service = SecureEnclaveService(biometricGate: gate)
         try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
         let (handle, _) = try service.generate(requiresBiometry: true, accessFlags: Self.promptFlags)
@@ -82,7 +82,7 @@ final class SecureEnclaveServiceTests: XCTestCase {
     }
 
     func testSilentSignNeverTouchesTheGate() throws {
-        let gate = MockBiometricGate(.deny) // would throw if a silent sign reached it
+        let gate = MockBiometricGate(.fail(.userCanceled)) // would throw if a silent sign reached it
         let service = SecureEnclaveService(biometricGate: gate)
         try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
         let (handle, x963) = try service.generate() // silent
@@ -95,7 +95,7 @@ final class SecureEnclaveServiceTests: XCTestCase {
     func testFlagsForceThePromptEvenWhenTheClassIsSilent() throws {
         // A silent class but presence flags: the helper derives requiresPrompt from the
         // flags it built, so the prompt route is taken regardless of the class bit.
-        let gate = MockBiometricGate(.deny)
+        let gate = MockBiometricGate(.fail(.userCanceled))
         let service = SecureEnclaveService(biometricGate: gate)
         try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
         let (handle, _) = try service.generate(requiresBiometry: false, accessFlags: Self.promptFlags)
@@ -146,7 +146,7 @@ final class SecureEnclaveServiceTests: XCTestCase {
 /// without a real prompt, so the routing is exercised headlessly. A silent sign must
 /// never reach it, which the call count proves.
 final class MockBiometricGate: BiometricGate, @unchecked Sendable {
-    enum Behavior { case authorize(Data); case deny }
+    enum Behavior { case authorize(Data); case fail(BiometricFailure) }
     private let behavior: Behavior
     private let lock = NSLock()
     private var calls = 0
@@ -162,7 +162,7 @@ final class MockBiometricGate: BiometricGate, @unchecked Sendable {
         lock.lock(); calls += 1; lock.unlock()
         switch behavior {
         case let .authorize(bytes): return bytes
-        case .deny: throw SecureEnclaveService.Failure.signing("denied (mock)")
+        case let .fail(failure): throw failure
         }
     }
 }

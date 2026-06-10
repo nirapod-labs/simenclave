@@ -26,11 +26,22 @@ final class AppKitBiometricGate: BiometricGate {
         guard let signature = SecKeyCreateSignature(
             key, .ecdsaSignatureDigestX962SHA256, digest as CFData, &error
         ) as Data? else {
-            let message = (error?.takeRetainedValue())
-                .map { CFErrorCopyDescription($0) as String } ?? "biometric sign failed"
-            throw SecureEnclaveService.Failure.signing(message)
+            throw Self.classify(error?.takeRetainedValue())
         }
         return signature
+    }
+
+    /// Classify the macOS sign error into a failure category the helper maps to the device
+    /// error. The common OSStatus cases are covered here; the LAError-specific categories
+    /// (lockout, not-enrolled, not-available) are a device-verified refinement, captured
+    /// with the device-reference table before M4.
+    private static func classify(_ error: CFError?) -> BiometricFailure {
+        guard let error else { return .unknown }
+        switch CFErrorGetCode(error) {
+        case Int(errSecUserCanceled): return .userCanceled
+        case Int(errSecAuthFailed): return .authenticationFailed
+        default: return .unknown
+        }
     }
 }
 
