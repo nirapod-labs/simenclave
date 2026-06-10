@@ -55,6 +55,31 @@ int main(void) {
   printf("verify: %d\n", verified);
   if (!verified) fails++;
 
+  // Fidelity: a shadow reads like a device's SE private key under introspection while
+  // staying unable to sign. SecKeyCopyAttributes reports the Secure Enclave token and the
+  // private key class; SecKeyCopyExternalRepresentation refuses, as a device's SE private
+  // key does; and the shadow's public key still exports, as a device's public key does.
+  CFDictionaryRef shadowAttrs = SecKeyCopyAttributes(key);
+  const void *tok = shadowAttrs ? CFDictionaryGetValue(shadowAttrs, kSecAttrTokenID) : NULL;
+  const void *cls = shadowAttrs ? CFDictionaryGetValue(shadowAttrs, kSecAttrKeyClass) : NULL;
+  Boolean attrsOk = tok && cls && CFEqual(tok, kSecAttrTokenIDSecureEnclave) &&
+                    CFEqual(cls, kSecAttrKeyClassPrivate);
+  printf("shadow attrs are SE private: %d\n", attrsOk);
+  if (!attrsOk) fails++;
+  if (shadowAttrs) CFRelease(shadowAttrs);
+
+  CFDataRef exported = SecKeyCopyExternalRepresentation(key, NULL);
+  printf("shadow refuses export: %d\n", exported == NULL);
+  if (exported) {
+    fails++;
+    CFRelease(exported);
+  }
+
+  CFDataRef pubExported = SecKeyCopyExternalRepresentation(pub, NULL);
+  printf("public key still exports: %d\n", pubExported != NULL);
+  if (!pubExported) fails++;
+  if (pubExported) CFRelease(pubExported);
+
   // Passthrough: a non-SE key is created and used by the real implementation,
   // untouched. It verifies under its own public key, and the SE counters below
   // must not move for it, which is the passthrough invariant in miniature.
