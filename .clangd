@@ -1,0 +1,5 @@
+# clangd reads the compile database CMake emits for the simulator slice, which is
+# the canonical target the interposer runs on, so hover and go-to-definition match
+# where the code actually runs. The clang-tidy checks come from .clang-tidy.
+CompileFlags:
+  CompilationDatabase: build-sim
