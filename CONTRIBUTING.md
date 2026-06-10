@@ -6,6 +6,7 @@ SimEnclave is PR-driven. Everything lands through a pull request that a maintain
 
 - Branch off `main`, and keep the branch focused on one thing.
 - Conventional commits, lowercase subject after the type and scope. The allowed types and scopes are in `.commitlintrc.json`, and the commit-msg hook checks them, so a bad message won't commit.
+- The PR title becomes the squash subject on `main`, so it has to be a valid conventional subject too. GitHub appends ` (#N)` and `subject-max-length` is 50, so keep the title around 45 characters. commitlint runs on the PR, not on the push to `main`.
 - Small PRs. If a reviewer can't hold the whole change in their head, split it.
 - CI has to be green before merge: lint, build, and the relevant tests.
 

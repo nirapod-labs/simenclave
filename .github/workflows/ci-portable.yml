@@ -14,6 +14,12 @@ permissions:
 
 jobs:
   commitlint:
+    # PRs only. A squash merge lands on main as "<pr title> (#N)"; the appended
+    # "(#N)" plus a long title can exceed subject-max-length even when every PR
+    # commit passed, so re-linting the squash subject on push is brittle and
+    # redundant. Validate contributor commits on the PR; the build and test jobs
+    # that join this lane later will carry the push trigger.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

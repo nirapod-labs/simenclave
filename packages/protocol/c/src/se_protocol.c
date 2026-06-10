@@ -9,6 +9,8 @@
 enum { K_OP = 0, K_STATUS = 1, K_HANDLE = 2, K_PUBKEY = 3, K_DIGEST = 4, K_SIG = 5, K_ERR = 6 };
 // ops and status
 enum { OP_GENERATE = 2, OP_SIGN = 4, ST_OK = 0, ST_ERROR = 1 };
+// CBOR major types (RFC 8949 3.1): unsigned int, byte string, text string, map
+enum { CBOR_UINT = 0, CBOR_BYTES = 2, CBOR_TEXT = 3, CBOR_MAP = 5 };
 
 typedef struct {
   uint8_t *buf;
@@ -61,22 +63,22 @@ static void w_bytes(writer *w, uint8_t major, const uint8_t *data, size_t len) {
 
 int se_encode_generate(uint8_t *out, size_t cap) {
   writer w = {out, cap, 0, 0};
-  w_head(&w, 5, 1); // map(1)
-  w_head(&w, 0, K_OP);
-  w_head(&w, 0, OP_GENERATE);
+  w_head(&w, CBOR_MAP, 1); // map(1)
+  w_head(&w, CBOR_UINT, K_OP);
+  w_head(&w, CBOR_UINT, OP_GENERATE);
   return w.overflow ? -1 : (int)w.pos;
 }
 
 int se_encode_sign(const uint8_t *handle, size_t handle_len, const uint8_t *digest,
                    size_t digest_len, uint8_t *out, size_t cap) {
   writer w = {out, cap, 0, 0};
-  w_head(&w, 5, 3); // map(3)
-  w_head(&w, 0, K_OP);
-  w_head(&w, 0, OP_SIGN);
-  w_head(&w, 0, K_HANDLE);
-  w_bytes(&w, 2, handle, handle_len);
-  w_head(&w, 0, K_DIGEST);
-  w_bytes(&w, 2, digest, digest_len);
+  w_head(&w, CBOR_MAP, 3); // map(3)
+  w_head(&w, CBOR_UINT, K_OP);
+  w_head(&w, CBOR_UINT, OP_SIGN);
+  w_head(&w, CBOR_UINT, K_HANDLE);
+  w_bytes(&w, CBOR_BYTES, handle, handle_len);
+  w_head(&w, CBOR_UINT, K_DIGEST);
+  w_bytes(&w, CBOR_BYTES, digest, digest_len);
   return w.overflow ? -1 : (int)w.pos;
 }
 
@@ -128,14 +130,14 @@ static se_status r_map(reader *r, entry *entries, size_t max, size_t *count) {
   uint64_t n;
   se_status st = r_head(r, &major, &n);
   if (st != SE_OK) return st;
-  if (major != 5) return SE_ERR_TYPE;
+  if (major != CBOR_MAP) return SE_ERR_TYPE;
   if (n > max) return SE_ERR_BUFFER;
   for (uint64_t i = 0; i < n; i++) {
     uint8_t km;
     uint64_t kv;
     st = r_head(r, &km, &kv);
     if (st != SE_OK) return st;
-    if (km != 0) return SE_ERR_TYPE; // keys are uints
+    if (km != CBOR_UINT) return SE_ERR_TYPE; // keys are uints
     uint8_t vm;
     uint64_t va;
     st = r_head(r, &vm, &va);
@@ -143,11 +145,11 @@ static se_status r_map(reader *r, entry *entries, size_t max, size_t *count) {
     entry *e = &entries[i];
     e->key = kv;
     e->major = vm;
-    if (vm == 0) {
+    if (vm == CBOR_UINT) {
       e->uintval = va;
       e->span = NULL;
       e->span_len = 0;
-    } else if (vm == 2 || vm == 3) {
+    } else if (vm == CBOR_BYTES || vm == CBOR_TEXT) {
       if (r->off + va > r->len) return SE_ERR_TRUNCATED;
       e->span = r->p + r->off;
       e->span_len = (size_t)va;
@@ -167,7 +169,7 @@ static const entry *find(const entry *entries, size_t count, uint64_t key) {
 }
 
 static se_status copy_span(const entry *e, uint8_t *dst, size_t cap, size_t *out_len) {
-  if (!e || e->major != 2) return SE_ERR_MISSING;
+  if (!e || e->major != CBOR_BYTES) return SE_ERR_MISSING;
   if (e->span_len > cap) return SE_ERR_BUFFER;
   memcpy(dst, e->span, e->span_len);
   *out_len = e->span_len;
@@ -183,13 +185,13 @@ se_status se_decode_response(const uint8_t *payload, size_t len, se_response *ou
 
   const entry *status = find(entries, count, K_STATUS);
   const entry *op = find(entries, count, K_OP);
-  if (!status || status->major != 0 || !op || op->major != 0) return SE_ERR_MISSING;
+  if (!status || status->major != CBOR_UINT || !op || op->major != CBOR_UINT) return SE_ERR_MISSING;
 
   if (status->uintval == ST_ERROR) {
     out->kind = SE_RESP_ERROR;
     const entry *msg = find(entries, count, K_ERR);
     size_t n = 0;
-    if (msg && msg->major == 3) {
+    if (msg && msg->major == CBOR_TEXT) {
       n = msg->span_len < sizeof(out->error) - 1 ? msg->span_len : sizeof(out->error) - 1;
       memcpy(out->error, msg->span, n);
     }
