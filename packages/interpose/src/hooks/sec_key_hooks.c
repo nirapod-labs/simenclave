@@ -47,6 +47,17 @@ static void set_error(CFErrorRef *error, OSStatus code) {
   if (error) *error = CFErrorCreate(NULL, kCFErrorDomainOSStatus, code, NULL);
 }
 
+// Build a CFError in the domain the helper named (wire key 13), so a routed biometric
+// failure looks like the device's: most failures are kCFErrorDomainOSStatus, a biometric
+// one may be the LocalAuthentication domain. Selector 1 is LocalAuthentication; anything
+// else is the OSStatus domain, the default and the unchanged behavior.
+static void set_error_in_domain(CFErrorRef *error, OSStatus code, int domain_selector) {
+  if (!error) return;
+  CFStringRef domain =
+      domain_selector == 1 ? CFSTR("com.apple.LocalAuthentication") : kCFErrorDomainOSStatus;
+  *error = CFErrorCreate(NULL, domain, code, NULL);
+}
+
 // Whether a dictionary asks for a Secure Enclave key.
 static int dict_has_se_token(CFDictionaryRef d) {
   if (!d) return 0;
@@ -261,7 +272,9 @@ static CFDataRef hook_create_signature(SecKeyRef key, SecKeyAlgorithm algorithm,
     OSStatus code = (response.kind == SE_RESP_ERROR && response.error_code != 0)
                         ? response.error_code
                         : errSecInternalComponent;
-    set_error(error, code);
+    // A biometric failure carries the device's error domain (key 13), so the rebuilt
+    // CFError matches what a device returns; other failures stay in the OSStatus domain.
+    set_error_in_domain(error, code, response.error_domain);
     return NULL;
   }
   g_stats.create_signature++;

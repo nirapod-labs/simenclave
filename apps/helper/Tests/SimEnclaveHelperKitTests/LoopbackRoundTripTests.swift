@@ -167,6 +167,37 @@ final class LoopbackRoundTripTests: XCTestCase {
         XCTAssertTrue(verifies(digest: digest, signature: signature, x963: x963))
     }
 
+    func testBiometricFailureSurfacesTheDeviceEnvelope() throws {
+        // A failed prompt maps to the device's error envelope, code and domain, so an
+        // app's do/catch reads the same error the device returns. The codes are
+        // device-confirm; the mapping and the wire-carried domain are what this proves.
+        let cases: [(BiometricFailure, Int64, UInt64)] = [
+            (.userCanceled, -128, Wire.domainOSStatus),
+            (.biometryLockout, -8, Wire.domainLAError),
+        ]
+        for (failure, expectedCode, expectedDomain) in cases {
+            let service = SecureEnclaveService(biometricGate: CategoryGate(failure))
+            try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+            let token = CapabilityToken()
+            let listener = LoopbackListener(
+                router: RequestRouter(service: service, gate: AuthGate(session: token)))
+            try listener.start()
+            defer { listener.stop() }
+            let client = LoopbackClient(port: listener.port)
+            let ac = AccessControl(
+                flags: UInt64(SecAccessControlCreateFlags([.privateKeyUsage, .userPresence]).rawValue),
+                protection: kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String)
+            guard case let .generated(handle, _) = try client.send(
+                .generate(keyClass: .biometry, accessControl: ac), token: token)
+            else { return XCTFail("expected a generated biometry key") }
+            guard case let .failure(code, _, domain) = try client.send(
+                .sign(handle: handle, digest: Data(repeating: 0x5A, count: 32)), token: token)
+            else { return XCTFail("a failed prompt must surface as a failure") }
+            XCTAssertEqual(code, expectedCode, "device code for \(failure)")
+            XCTAssertEqual(domain, expectedDomain, "device domain for \(failure)")
+        }
+    }
+
     private func verifies(digest: Data, signature: Data, x963: Data) -> Bool {
         let attributes: [String: Any] = [
             kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
@@ -205,5 +236,15 @@ final class ParkingGate: BiometricGate, @unchecked Sendable {
         parked.signal()
         release.wait()
         return signature
+    }
+}
+
+/// A gate that fails a prompt with a chosen category, to prove the helper maps it to the
+/// device's error envelope on the wire.
+final class CategoryGate: BiometricGate, @unchecked Sendable {
+    private let failure: BiometricFailure
+    init(_ failure: BiometricFailure) { self.failure = failure }
+    func promptedSign(key _: SecKey, digest _: Data, reason _: String) throws -> Data {
+        throw failure
     }
 }
