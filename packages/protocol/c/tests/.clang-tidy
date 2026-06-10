@@ -1,0 +1,8 @@
+# Proof and demo harnesses, not library code. They allocate CF objects and exit
+# immediately, and a test main is a flat list of assertions, so two checks that
+# only make sense for long-lived production code are relaxed here. Everything
+# else inherits the strict root config; production code keeps both checks.
+#   clang-analyzer-osx.cocoa.RetainCount    short-lived harness; the OS reclaims on exit
+#   readability-function-cognitive-complexity  a flat assertion list is not complex
+InheritParentConfig: true
+Checks: "-clang-analyzer-osx.cocoa.RetainCount,-readability-function-cognitive-complexity"
