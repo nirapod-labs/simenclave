@@ -15,7 +15,7 @@ Run `pnpm install` and `lefthook install` once. After that, formatting and the c
 
 ## Building
 
-Filled in as the milestones land. The shape: the helper is a Swift app built with XcodeGen, the interposer is C built with clang for the Simulator slice, and the JS side is a pnpm workspace.
+`make bootstrap` from a fresh clone, then `make build` and `make test`. The toolchain, the editor wiring, and every `make` target are in [docs/development.md](docs/development.md).
 
 ## Design before code
 

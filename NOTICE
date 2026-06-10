@@ -4,6 +4,6 @@ Copyright 2026 Nirapod Labs
 This product includes software developed at Nirapod Labs.
 
 The interposer uses Dobby (https://github.com/jmpews/Dobby, Apache-2.0) as its
-default inline-hook backend. scripts/fetch-dobby.sh fetches it, pinned, into
-packages/interpose/vendor/dobby (gitignored), where its LICENSE travels with the
-checkout.
+default inline-hook backend. CMake's FetchContent fetches it, pinned in
+CMakeLists.txt, and builds it as part of the native build; its LICENSE travels
+with the fetched source.

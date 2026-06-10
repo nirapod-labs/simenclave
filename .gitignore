@@ -13,17 +13,16 @@ DerivedData/
 # Generated Xcode projects (XcodeGen owns these)
 *.xcodeproj/
 
-# Build artifacts
+# CMake build trees, fetched dependencies, and the generated compile database
 build/
+build-sim/
+_deps/
+compile_commands.json
+
+# Distribution
 dist/notarization/
 
 # Local
 .env
 *.local
 *.log
-
-# Vendored Dobby: fetched and built by scripts/fetch-dobby.sh, not committed
-packages/interpose/vendor/dobby/
-
-# CMake build trees
-build-sim/

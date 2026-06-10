@@ -18,6 +18,10 @@ This is a development tool. It runs only in the Simulator, it signs only with yo
 
 Coming as the milestones land. The short version once it's ready: `brew install` the helper, run `simenclavectl init` to point your scheme at the interposer, and your existing `SecKey` code works in the Simulator against real hardware. The CLI is built to be driven by a person or an agent, with JSON output and real exit codes throughout.
 
+## Developing
+
+`make bootstrap` then `make build` and `make test`. The toolchain, the VSCode setup, and the build are in [docs/development.md](docs/development.md).
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
