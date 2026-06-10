@@ -1,6 +1,8 @@
-# XcodeGen spec for the SimEnclave helper. This is the committed source of the
-# .xcodeproj. The sources, the entitlements (com.apple.application-identifier,
-# via the Keychain Sharing capability), and signing are filled in during M1.
+# XcodeGen spec for a signed, notarized SimEnclave helper .app bundle, for
+# distribution (M5). M1 ships the menubar as the ad-hoc `simenclave-menubar`
+# SwiftPM accessory app, which needs no entitlement (the SE works ad-hoc). This
+# bundle adds com.apple.application-identifier (Keychain Sharing) for keychain
+# persistence (M3) and Developer ID signing for distribution, both filled in at M5.
 name: SimEnclaveHelper
 options:
   bundleIdPrefix: com.nirapod.simenclave

@@ -218,7 +218,7 @@ over loopback, with unit tests green on a Mac that has a real Secure Enclave:
 - The handle store, one flat namespace per session (per-UDID isolation is M3)
 - The menubar: a status line, a kill switch, and a per-app approval prompt (a convenience, not an access boundary)
 - Wire protocol v1: `HELLO` negotiation, the token, and this `SPEC.md` plus the CDDL
-- The signed `.app` carrying `com.apple.application-identifier`, the only way to reach the Mac SE
+- The menubar app over the helper kit, an ad-hoc accessory app (no dock icon). The Secure Enclave needs no entitlement, so M1 ships this; a signed, notarized `.app` with `com.apple.application-identifier` is for persistence (M3) and distribution (M5)
 
 Deferred, and to where:
 

@@ -29,7 +29,7 @@ JavaScript tooling is a pnpm workspace: `pnpm install`, then `pnpm lint` (biome)
 Three deployables and one shared contract, each under its own directory:
 
 - `packages/host-core` (Swift) drives the Mac's Secure Enclave: generate a P-256 key in the SEP, sign, fetch the public key. The host side.
-- `apps/helper` is a signed macOS menubar app that owns the SEP key and answers requests over loopback. It must be a signed `.app` rather than a CLI, because using the Secure Enclave needs the `com.apple.application-identifier` entitlement.
+- `apps/helper` is the menubar app that owns the SEP key and answers requests over loopback. The Secure Enclave works from an ad-hoc binary with no entitlement (M0 and the key-class work proved it, silent and biometry both). The `com.apple.application-identifier` entitlement is for keychain persistence (M3); the M1 menubar is an accessory app (no dock icon, ad-hoc), and a signed, notarized `.app` bundle for distribution is M5.
 - `packages/interpose` is the injected dylib. It inline-hooks the `SecKey` C API in a simulated app, redirects Secure Enclave operations to the helper, and passes every other call straight through to the real Security framework. It holds the shadow-ref registry (each `SecKeyRef` mapped to a host handle and public key) and the loopback client.
 - `packages/protocol` is the wire contract: one spec (CBOR with a length prefix) and two codecs, Swift for the helper and C for the interposer.
 - `tools/simenclavectl` is the CLI: JSON output and real exit codes, so a person or an agent can drive it.

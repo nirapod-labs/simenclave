@@ -52,7 +52,7 @@ Status: not started. Target: 2026-06-18 to 06-27.
 - [ ] Handle store, one flat namespace per session, handles unguessable so test runs stay reproducible (per-UDID isolation and durable persistence are M3)
 - [ ] Menubar UI with a status line, a kill switch, and a per-app approval prompt (a convenience, not an access boundary)
 - [ ] Wire protocol v1: CBOR with length framing, `HELLO` version negotiation, plus `SPEC.md` and a CDDL schema
-- [ ] Signed `.app` carrying the `com.apple.application-identifier` entitlement, the only way to touch the Mac SE
+- [ ] A signed, notarized `.app` for distribution (deferred to M5). The Secure Enclave needs no entitlement, proved in M0 and the key-class work, so M1 ships the menubar above as an ad-hoc accessory app; `com.apple.application-identifier` is for keychain persistence (M3)
 
 Done when the helper generates, signs, persists, and authenticates over loopback, with unit tests green on a Mac that has a real Secure Enclave.
 
