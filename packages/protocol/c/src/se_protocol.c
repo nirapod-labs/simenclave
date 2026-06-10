@@ -98,20 +98,26 @@ static se_status r_head(reader *r, uint8_t *major, uint64_t *arg) {
     return SE_OK;
   }
   size_t n;
+  uint64_t min;
   if (info == 24) {
     n = 1;
+    min = 24;
   } else if (info == 25) {
     n = 2;
+    min = 0x100;
   } else if (info == 26) {
     n = 4;
+    min = 0x10000;
   } else if (info == 27) {
     n = 8;
+    min = 0x100000000ULL;
   } else {
     return SE_ERR_MALFORMED;
   }
   if (r->off + n > r->len) return SE_ERR_TRUNCATED;
   uint64_t v = 0;
   for (size_t i = 0; i < n; i++) v = (v << 8) | r->p[r->off++];
+  if (v < min) return SE_ERR_MALFORMED; // reject non-shortest-form (canonical)
   *arg = v;
   return SE_OK;
 }
@@ -138,6 +144,9 @@ static se_status r_map(reader *r, entry *entries, size_t max, size_t *count) {
     st = r_head(r, &km, &kv);
     if (st != SE_OK) return st;
     if (km != CBOR_UINT) return SE_ERR_TYPE; // keys are uints
+    for (uint64_t j = 0; j < i; j++) {
+      if (entries[j].key == kv) return SE_ERR_MALFORMED; // reject duplicate key
+    }
     uint8_t vm;
     uint64_t va;
     st = r_head(r, &vm, &va);

@@ -57,6 +57,18 @@ int main(void) {
   uint8_t prefix[4] = {0, 0, 1, 0};
   CHECK(se_payload_length(prefix) == 256, "payload length");
 
+  // Hardening: a map with a duplicate key is rejected.
+  uint8_t dup_key[] = {0xA2, 0x00, 0x02, 0x00, 0x03};
+  CHECK(se_decode_response(dup_key, sizeof(dup_key), &resp) != SE_OK, "reject duplicate key");
+
+  // Hardening: a non-shortest-form integer (5 in the 1-byte form) is rejected.
+  uint8_t non_canon[] = {0xA1, 0x00, 0x18, 0x05};
+  CHECK(se_decode_response(non_canon, sizeof(non_canon), &resp) != SE_OK, "reject non-canonical");
+
+  // Hardening: trailing bytes after a complete map are rejected.
+  uint8_t trailing[] = {0xA1, 0x00, 0x02, 0xFF};
+  CHECK(se_decode_response(trailing, sizeof(trailing), &resp) != SE_OK, "reject trailing bytes");
+
   printf(fails ? "C CODEC: %d failure(s)\n" : "C CODEC: ok\n", fails);
   return fails ? 1 : 0;
 }

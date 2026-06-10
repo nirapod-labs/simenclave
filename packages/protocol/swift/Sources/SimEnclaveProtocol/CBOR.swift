@@ -122,13 +122,21 @@ struct CBORReader {
         case 0 ..< 24:
             return UInt64(additional)
         case 24:
-            return UInt64(try byte())
+            let value = UInt64(try byte())
+            guard value >= 24 else { throw ProtocolError.nonCanonical }
+            return value
         case 25:
-            return try bigEndian(2)
+            let value = try bigEndian(2)
+            guard value > 0xFF else { throw ProtocolError.nonCanonical }
+            return value
         case 26:
-            return try bigEndian(4)
+            let value = try bigEndian(4)
+            guard value > 0xFFFF else { throw ProtocolError.nonCanonical }
+            return value
         case 27:
-            return try bigEndian(8)
+            let value = try bigEndian(8)
+            guard value > 0xFFFF_FFFF else { throw ProtocolError.nonCanonical }
+            return value
         default:
             throw ProtocolError.malformed
         }
@@ -153,6 +161,7 @@ struct CBORMap {
         var entries: [UInt64: CBORValue] = [:]
         for _ in 0 ..< count {
             let key = try reader.uint()
+            guard entries[key] == nil else { throw ProtocolError.duplicateKey(key) }
             entries[key] = try reader.value()
         }
         try reader.expectEnd()

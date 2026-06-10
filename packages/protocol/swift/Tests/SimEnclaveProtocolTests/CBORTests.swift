@@ -44,6 +44,27 @@ final class CBORTests: XCTestCase {
         }
     }
 
+    func testRejectsDuplicateKey() {
+        // map(2) { 0: 2, 0: 3 } repeats key 0.
+        XCTAssertThrowsError(try CBORMap(decoding: Data([0xA2, 0x00, 0x02, 0x00, 0x03]))) { error in
+            XCTAssertEqual(error as? ProtocolError, .duplicateKey(0))
+        }
+    }
+
+    func testRejectsNonCanonicalInteger() {
+        // value 5 in the 1-byte form (0x18 0x05) instead of inline.
+        XCTAssertThrowsError(try CBORMap(decoding: Data([0xA1, 0x00, 0x18, 0x05]))) { error in
+            XCTAssertEqual(error as? ProtocolError, .nonCanonical)
+        }
+    }
+
+    func testRejectsTrailingBytes() {
+        // map(1) { 0: 2 } followed by a stray byte.
+        XCTAssertThrowsError(try CBORMap(decoding: Data([0xA1, 0x00, 0x02, 0xFF]))) { error in
+            XCTAssertEqual(error as? ProtocolError, .trailingBytes)
+        }
+    }
+
     private func write(_ body: (inout CBORWriter) -> Void) -> Data {
         var writer = CBORWriter()
         body(&writer)
