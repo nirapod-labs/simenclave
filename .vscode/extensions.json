@@ -1,0 +1,12 @@
+{
+  "recommendations": [
+    "swiftlang.swift-vscode",
+    "llvm-vs-code-extensions.vscode-clangd",
+    "ms-vscode.cmake-tools",
+    "biomejs.biome",
+    "editorconfig.editorconfig",
+    "github.vscode-github-actions"
+  ],
+  // The Microsoft C/C++ extension's IntelliSense fights clangd; use clangd.
+  "unwantedRecommendations": ["ms-vscode.cpptools"]
+}

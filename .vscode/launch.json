@@ -1,0 +1,24 @@
+{
+  "configurations": [
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:simenclave}/apps/helper",
+      "name": "Debug simenclave-helper (apps/helper)",
+      "target": "simenclave-helper",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug simenclave-helper (apps/helper)"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:simenclave}/apps/helper",
+      "name": "Release simenclave-helper (apps/helper)",
+      "target": "simenclave-helper",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release simenclave-helper (apps/helper)"
+    }
+  ]
+}

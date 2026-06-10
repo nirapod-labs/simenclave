@@ -6,12 +6,12 @@
 #include "se_protocol.h"
 
 static int fails = 0;
-#define CHECK(cond, msg)                       \
-  do {                                         \
-    if (!(cond)) {                             \
-      printf("FAIL: %s\n", msg);               \
-      fails++;                                  \
-    }                                          \
+#define CHECK(cond, msg)                                                                           \
+  do {                                                                                             \
+    if (!(cond)) {                                                                                 \
+      printf("FAIL: %s\n", msg);                                                                   \
+      fails++;                                                                                     \
+    }                                                                                              \
   } while (0)
 
 int main(void) {
@@ -31,8 +31,8 @@ int main(void) {
   CHECK(n == 44 && memcmp(buf, sign_prefix, sizeof(sign_prefix)) == 0, "sign bytes");
 
   // Decode a GENERATE-ok response.
-  uint8_t gen_resp[] = {0xA4, 0x00, 0x02, 0x01, 0x00, 0x02, 0x44, 1, 2, 3, 4,
-                        0x03, 0x45, 9, 8, 7, 6, 5};
+  uint8_t gen_resp[] = {0xA4, 0x00, 0x02, 0x01, 0x00, 0x02, 0x44, 1, 2,
+                        3,    4,    0x03, 0x45, 9,    8,    7,    6, 5};
   se_response resp;
   CHECK(se_decode_response(gen_resp, sizeof(gen_resp), &resp) == SE_OK, "decode generated rc");
   CHECK(resp.kind == SE_RESP_GENERATED && resp.handle_len == 4 && resp.public_key_len == 5,

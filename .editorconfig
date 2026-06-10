@@ -8,7 +8,9 @@ trim_trailing_whitespace = true
 indent_style = space
 indent_size = 2
 
-[*.{swift,c,h,m,mm,cpp,hpp}]
+# Swift follows Apple's 4-space convention; C and friends use the 2-space LLVM
+# default above, matching .clang-format.
+[*.swift]
 indent_size = 4
 
 [Makefile]
