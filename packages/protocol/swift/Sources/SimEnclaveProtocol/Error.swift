@@ -20,4 +20,9 @@ public enum ProtocolError: Error, Equatable {
     case missingField(UInt64)
     /// A frame's length prefix exceeded `Framing.maxFrame`.
     case frameTooLarge(Int)
+    /// A map repeated a key; the decoder requires exactly one value per key.
+    case duplicateKey(UInt64)
+    /// An integer or length used a longer form than the shortest that fits; the
+    /// decoder requires canonical, shortest-form CBOR.
+    case nonCanonical
 }
