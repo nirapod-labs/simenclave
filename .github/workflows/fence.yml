@@ -1,0 +1,15 @@
+name: fence
+
+# The safety gate. Asserts a release build cannot load the interposer: the
+# release scheme sets no DYLD_INSERT_LIBRARIES, and no interposer dylib is
+# bundled. With the variable unset, the simulator shows the stock failing-SE
+# behavior, which proves the app is not coupled to the tool. Implemented in M4.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fence:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Placeholder. Implement the no-env-var and no-bundled-dylib assertions in M4."

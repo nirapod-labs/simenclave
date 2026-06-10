@@ -1,0 +1,22 @@
+name: ci-portable
+
+# Runs anywhere. For now it enforces conventional commits on every PR. The
+# biome lint and the protocol-codec tests join this lane once there's code,
+# in M1 and after.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: wagoid/commitlint-github-action@v6
