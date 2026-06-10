@@ -187,6 +187,7 @@ self-describing map absorbed that without a format break, where a hand-rolled
 layout would have needed versioned offsets. CBOR is a small, well-specified
 encoding. M0 carried it with a compact hand-written codec on each side, the
 Swift one in the helper and the C one in the interposer, which byte-match because
-both emit the shortest form. M1's larger operation set is where the C side moves
-to tinycbor, with the hand-written encoder kept as the byte-for-byte oracle the
-library is tested against.
+both emit the shortest form. M1 keeps both hand-written. The surface stays small,
+the two remain each other's byte-for-byte oracle, and a hand-written reader is
+where the duplicate-key and shortest-form rejection are guaranteed directly
+rather than assumed of a library.

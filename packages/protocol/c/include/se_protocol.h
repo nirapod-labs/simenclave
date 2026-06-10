@@ -1,8 +1,9 @@
 // SimEnclave wire protocol, C side (see ../../SPEC.md and ../../protocol.cddl).
 // The interposer encodes requests and decodes responses with this; the Swift
-// helper is the other end. M0's codec is hand-written for the two messages it
-// carries and byte-matches the Swift one; tinycbor is the planned library when
-// the protocol grows at M1.
+// helper is the other end. The codec is hand-written and byte-matches the Swift
+// one, and it stays hand-written through M1: the surface is small, the two are
+// each other's byte-for-byte oracle, and rejecting duplicate keys and non-
+// shortest-form encodings is something a hand-written reader guarantees directly.
 #ifndef SE_PROTOCOL_H
 #define SE_PROTOCOL_H
 
