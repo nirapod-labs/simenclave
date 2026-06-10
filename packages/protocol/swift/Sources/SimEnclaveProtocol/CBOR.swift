@@ -186,6 +186,12 @@ struct CBORMap {
         return value
     }
 
+    /// A uint if present and of the right type, else nil. For optional keys.
+    func optionalUint(_ key: UInt64) -> UInt64? {
+        if case let .uint(value)? = entries[key] { return value }
+        return nil
+    }
+
     func int(_ key: UInt64) throws -> Int64 {
         switch entries[key] {
         case let .uint(value)?: return Int64(value)

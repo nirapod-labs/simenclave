@@ -32,20 +32,24 @@ public final class SecureEnclaveService: @unchecked Sendable {
     /// True on T2 and Apple Silicon Macs. The whole tool is a no-op without it.
     public var isAvailable: Bool { SecureEnclave.isAvailable }
 
-    /// Generate a silent P-256 signing key in the SEP.
+    /// Generate a P-256 signing key in the SEP. A silent key is usable without
+    /// user presence; a biometry key requires Touch ID to use the private key.
     ///
     /// Returns an opaque handle and the public key in X9.63 form (65 bytes, a
     /// `0x04` lead byte then the two 32-byte coordinates), which is what the device
-    /// returns from `SecKeyCopyExternalRepresentation`. The biometry-gated key
-    /// class is M3.
-    public func generate() throws -> (handle: Data, publicKey: Data) {
+    /// returns from `SecKeyCopyExternalRepresentation`. The biometric prompt at
+    /// sign time and its error parity are M3.
+    public func generate(requiresBiometry: Bool = false) throws -> (handle: Data, publicKey: Data) {
         guard SecureEnclave.isAvailable else { throw Failure.unavailable }
 
+        let flags: SecAccessControlCreateFlags = requiresBiometry
+            ? [.privateKeyUsage, .biometryCurrentSet]
+            : [.privateKeyUsage]
         var accessError: Unmanaged<CFError>?
         guard let access = SecAccessControlCreateWithFlags(
             kCFAllocatorDefault,
             kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            [.privateKeyUsage],
+            flags,
             &accessError
         ) else {
             throw Failure.keyGeneration(Self.message(accessError))

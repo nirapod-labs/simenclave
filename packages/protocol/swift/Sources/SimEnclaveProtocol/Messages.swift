@@ -1,8 +1,16 @@
 import Foundation
 
+/// The class of a generated key. A silent key is usable without user presence; a
+/// biometry key requires Touch ID to use the private key. M1 creates the key with
+/// the right access control; the biometric prompt and its error parity are M3.
+public enum KeyClass: UInt64, Sendable {
+    case silent = 0
+    case biometry = 1
+}
+
 /// A request from the interposer to the helper.
 public enum Request: Equatable {
-    case generate
+    case generate(keyClass: KeyClass)
     case getPublicKey(handle: Data)
     case sign(handle: Data, digest: Data)
     case delete(handle: Data)
@@ -35,6 +43,7 @@ public enum Wire {
     static let keySignature: UInt64 = 5
     static let keyError: UInt64 = 6
     static let keyToken: UInt64 = 7
+    static let keyClassKey: UInt64 = 9
     static let keyErrorCode: UInt64 = 10
 
     /// Encode a request, carrying the capability token in key 7. The token rides
@@ -42,10 +51,19 @@ public enum Wire {
     public static func encode(_ request: Request, token: Data) -> Data {
         var writer = CBORWriter()
         switch request {
-        case .generate:
-            writer.mapHeader(2)
-            writer.uint(keyOp); writer.uint(opGenerate)
-            writer.uint(keyToken); writer.bytes(token)
+        case let .generate(keyClass):
+            // A silent key omits key 9, keeping the bytes the M0 interposer sends;
+            // a biometry key adds it.
+            if keyClass == .silent {
+                writer.mapHeader(2)
+                writer.uint(keyOp); writer.uint(opGenerate)
+                writer.uint(keyToken); writer.bytes(token)
+            } else {
+                writer.mapHeader(3)
+                writer.uint(keyOp); writer.uint(opGenerate)
+                writer.uint(keyToken); writer.bytes(token)
+                writer.uint(keyClassKey); writer.uint(keyClass.rawValue)
+            }
         case let .getPublicKey(handle):
             writer.mapHeader(3)
             writer.uint(keyOp); writer.uint(opGetPublicKey)
@@ -76,7 +94,7 @@ public enum Wire {
         let map = try CBORMap(decoding: payload)
         switch try map.uint(keyOp) {
         case opGenerate:
-            return .generate
+            return .generate(keyClass: KeyClass(rawValue: map.optionalUint(keyClassKey) ?? 0) ?? .silent)
         case opGetPublicKey:
             return .getPublicKey(handle: try map.bytes(keyHandle))
         case opSign:
