@@ -2,37 +2,86 @@
 ;
 ; Every message is a CBOR map with unsigned-integer keys, carried inside a
 ; 4-byte big-endian length-prefixed frame. Integer keys keep the encoding
-; compact and canonical. M0 defines GENERATE and SIGN; HELLO version
-; negotiation, a capability token, GET_PUBKEY, and DELETE are M1 and extend
-; this schema without changing the framing.
+; compact and canonical (keys ascending, shortest form). M0 carried GENERATE
+; and SIGN with no auth; M1 completes the version with a per-request capability
+; token, HELLO version negotiation, GET_PUBKEY, and DELETE. The framing is
+; unchanged and the M0 GENERATE and SIGN bytes are unchanged.
 
 start = request / response
 
 ; --- keys ---------------------------------------------------------------
-; 0 op   1 status   2 handle   3 publicKey   4 digest   5 signature   6 error
+; 0 op  1 status  2 handle  3 publicKey  4 digest  5 signature  6 error
+; 7 token  8 version  9 keyClass  10 errorCode
+
+token = bstr .size 32          ; the per-session capability token
+key-class = 0 / 1              ; 0 silent, 1 biometry
 
 ; --- requests -----------------------------------------------------------
+; Every request carries the token in key 7.
 
-request = generate-request / sign-request
+request = hello-request
+        / generate-request
+        / get-pubkey-request
+        / sign-request
+        / delete-request
+
+hello-request = {
+  0 => 1,                ; op = HELLO
+  7 => token,
+  8 => 1,                ; version the interposer speaks
+}
 
 generate-request = {
   0 => 2,                ; op = GENERATE
+  7 => token,
+  9 => key-class,
+}
+
+get-pubkey-request = {
+  0 => 3,                ; op = GET_PUBKEY
+  2 => bstr,             ; handle from a prior GENERATE
+  7 => token,
 }
 
 sign-request = {
   0 => 4,                ; op = SIGN
   2 => bstr,             ; handle from a prior GENERATE
   4 => bstr .size 32,    ; digest, a 32-byte SHA-256 value
+  7 => token,
+}
+
+delete-request = {
+  0 => 5,                ; op = DELETE
+  2 => bstr,             ; handle to remove
+  7 => token,
 }
 
 ; --- responses ----------------------------------------------------------
+; Responses never carry the token.
 
-response = generate-ok / sign-ok / error-response
+response = hello-ok
+         / generate-ok
+         / get-pubkey-ok
+         / sign-ok
+         / delete-ok
+         / error-response
+
+hello-ok = {
+  0 => 1,                ; op = HELLO
+  1 => 0,                ; status = OK
+  8 => 1,                ; version the helper speaks
+}
 
 generate-ok = {
   0 => 2,                ; op = GENERATE
   1 => 0,                ; status = OK
   2 => bstr,             ; handle
+  3 => bstr,             ; publicKey, X9.63 uncompressed (65 bytes)
+}
+
+get-pubkey-ok = {
+  0 => 3,                ; op = GET_PUBKEY
+  1 => 0,                ; status = OK
   3 => bstr,             ; publicKey, X9.63 uncompressed (65 bytes)
 }
 
@@ -42,8 +91,14 @@ sign-ok = {
   5 => bstr,             ; signature, X9.62 DER, exactly what the device returns
 }
 
+delete-ok = {
+  0 => 5,                ; op = DELETE
+  1 => 0,                ; status = OK
+}
+
 error-response = {
   0 => uint,             ; op echoed
   1 => 1,                ; status = ERROR
-  6 => tstr,             ; human-readable reason
+  6 => tstr,             ; human-readable reason, never load-bearing
+  10 => int,             ; errorCode, an OSStatus for device parity
 }
