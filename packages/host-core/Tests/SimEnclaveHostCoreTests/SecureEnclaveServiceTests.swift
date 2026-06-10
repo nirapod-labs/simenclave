@@ -46,6 +46,52 @@ final class SecureEnclaveServiceTests: XCTestCase {
         }
     }
 
+    /// A user-presence access control: a prompted key that needs no specific biometric
+    /// hardware to create, so these run on any Mac with a Secure Enclave.
+    private static let promptFlags = UInt(
+        SecAccessControlCreateFlags([.privateKeyUsage, .userPresence]).rawValue)
+
+    func testPromptedSignRoutesThroughTheGate() throws {
+        let canned = Data(repeating: 0x30, count: 70)
+        let gate = MockBiometricGate(.authorize(canned))
+        let service = SecureEnclaveService(biometricGate: gate)
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+        let (handle, _) = try service.generate(requiresBiometry: true, accessFlags: Self.promptFlags)
+        let signature = try service.sign(handle: handle, digest: Data(repeating: 0x5A, count: 32))
+        XCTAssertEqual(signature, canned, "a prompted sign is delegated to the gate")
+        XCTAssertEqual(gate.callCount, 1)
+    }
+
+    func testPromptedSignDenialIsAFailure() throws {
+        let gate = MockBiometricGate(.deny)
+        let service = SecureEnclaveService(biometricGate: gate)
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+        let (handle, _) = try service.generate(requiresBiometry: true, accessFlags: Self.promptFlags)
+        XCTAssertThrowsError(try service.sign(handle: handle, digest: Data(repeating: 0x5A, count: 32)))
+    }
+
+    func testPromptedSignWithoutGateFailsClosed() throws {
+        let service = SecureEnclaveService() // no gate, as the CLI helper installs none
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+        let (handle, _) = try service.generate(requiresBiometry: true, accessFlags: Self.promptFlags)
+        XCTAssertThrowsError(
+            try service.sign(handle: handle, digest: Data(repeating: 0x5A, count: 32))
+        ) { error in
+            XCTAssertEqual(error as? SecureEnclaveService.Failure, .biometryUnavailable)
+        }
+    }
+
+    func testSilentSignNeverTouchesTheGate() throws {
+        let gate = MockBiometricGate(.deny) // would throw if a silent sign reached it
+        let service = SecureEnclaveService(biometricGate: gate)
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+        let (handle, x963) = try service.generate() // silent
+        let digest = Data(SHA256.hash(data: Data("silent skips the gate".utf8)))
+        let signature = try service.sign(handle: handle, digest: digest)
+        XCTAssertEqual(gate.callCount, 0, "a silent sign must not reach the gate")
+        XCTAssertTrue(verifies(digest: digest, signature: signature, x963: x963))
+    }
+
     /// Verify a DER ECDSA signature over a digest using the public key the service
     /// exported, through the same Security-framework verify path a device uses.
     private func verifies(digest: Data, signature: Data, x963: Data) -> Bool {
@@ -65,5 +111,30 @@ final class SecureEnclaveServiceTests: XCTestCase {
             signature as CFData,
             &error
         )
+    }
+}
+
+/// A biometric gate for tests: it returns canned bytes (authorized) or throws (denied)
+/// without a real prompt, so the routing is exercised headlessly. A silent sign must
+/// never reach it, which the call count proves.
+final class MockBiometricGate: BiometricGate, @unchecked Sendable {
+    enum Behavior { case authorize(Data); case deny }
+    private let behavior: Behavior
+    private let lock = NSLock()
+    private var calls = 0
+
+    init(_ behavior: Behavior) { self.behavior = behavior }
+
+    var callCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return calls
+    }
+
+    func promptedSign(key _: SecKey, digest _: Data, reason _: String) throws -> Data {
+        lock.lock(); calls += 1; lock.unlock()
+        switch behavior {
+        case let .authorize(bytes): return bytes
+        case .deny: throw SecureEnclaveService.Failure.signing("denied (mock)")
+        }
     }
 }

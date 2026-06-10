@@ -124,6 +124,49 @@ final class LoopbackRoundTripTests: XCTestCase {
         }
     }
 
+    // BLOCKER-1 proof: a biometry sign parked on the human prompt must block only its own
+    // connection. A user-presence key (builds on any Mac) is signed on one connection,
+    // which parks in a gate; while it is parked, a silent generate and sign on other
+    // connections must complete. The proof is deterministic: it waits on a semaphore the
+    // gate signals when parked, not on a timing margin.
+    func testParkedBiometrySignDoesNotStallOtherConnections() throws {
+        let parked = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let gate = ParkingGate(parked: parked, release: release, signature: Data(repeating: 0x30, count: 70))
+        let service = SecureEnclaveService(biometricGate: gate)
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+
+        let token = CapabilityToken()
+        let listener = LoopbackListener(router: RequestRouter(service: service, gate: AuthGate(session: token)))
+        try listener.start()
+        defer { release.signal(); listener.stop() }
+        let port = listener.port
+
+        let ac = AccessControl(
+            flags: UInt64(SecAccessControlCreateFlags([.privateKeyUsage, .userPresence]).rawValue),
+            protection: kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String)
+        guard case let .generated(promptedHandle, _) = try LoopbackClient(port: port).send(
+            .generate(keyClass: .biometry, accessControl: ac), token: token)
+        else { return XCTFail("expected a generated biometry key") }
+
+        // Connection A: sign the prompted key; it parks in the gate.
+        DispatchQueue.global().async {
+            _ = try? LoopbackClient(port: port).send(
+                .sign(handle: promptedHandle, digest: Data(repeating: 0x5A, count: 32)), token: token)
+        }
+        XCTAssertEqual(parked.wait(timeout: .now() + 5), .success, "the biometry sign should park in the gate")
+
+        // While A is parked, a silent generate and sign on other connections must complete.
+        guard case let .generated(silentHandle, x963) = try LoopbackClient(port: port).send(
+            .generate(keyClass: .silent), token: token)
+        else { return XCTFail("a silent generate must complete while a biometry sign is parked") }
+        let digest = Data(SHA256.hash(data: Data("unblocked".utf8)))
+        guard case let .signed(signature) = try LoopbackClient(port: port).send(
+            .sign(handle: silentHandle, digest: digest), token: token)
+        else { return XCTFail("a silent sign must complete while a biometry sign is parked") }
+        XCTAssertTrue(verifies(digest: digest, signature: signature, x963: x963))
+    }
+
     private func verifies(digest: Data, signature: Data, x963: Data) -> Bool {
         let attributes: [String: Any] = [
             kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
@@ -141,5 +184,26 @@ final class LoopbackRoundTripTests: XCTestCase {
             signature as CFData,
             &error
         )
+    }
+}
+
+/// A gate that parks the calling connection's sign until released, signaling when it
+/// parks. It stands in for a human at the Touch ID sheet, so a test can prove a parked
+/// biometry sign holds only its own connection.
+final class ParkingGate: BiometricGate, @unchecked Sendable {
+    private let parked: DispatchSemaphore
+    private let release: DispatchSemaphore
+    private let signature: Data
+
+    init(parked: DispatchSemaphore, release: DispatchSemaphore, signature: Data) {
+        self.parked = parked
+        self.release = release
+        self.signature = signature
+    }
+
+    func promptedSign(key _: SecKey, digest _: Data, reason _: String) throws -> Data {
+        parked.signal()
+        release.wait()
+        return signature
     }
 }

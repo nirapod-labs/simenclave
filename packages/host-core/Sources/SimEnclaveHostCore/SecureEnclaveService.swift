@@ -22,12 +22,27 @@ public final class SecureEnclaveService: @unchecked Sendable {
         case unknownHandle
         case signing(String)
         case publicKeyExport(String)
+        case biometryUnavailable
+    }
+
+    /// A stored SEP key and whether its use requires a prompt (a biometry or
+    /// user-presence key). The flag is set at generate, so sign can route a prompted key
+    /// through the biometric gate without re-reading its access control.
+    private struct StoredKey {
+        let key: SecKey
+        let requiresPrompt: Bool
     }
 
     private let lock = NSLock()
-    private var keys: [Data: SecKey] = [:]
+    private var keys: [Data: StoredKey] = [:]
+    private let biometricGate: BiometricGate?
 
-    public init() {}
+    /// The biometric gate drives the prompt for a prompted key. The menubar app installs
+    /// the real one; the CLI helper installs none, so a prompted sign there fails closed;
+    /// tests inject a mock. A silent key never touches it.
+    public init(biometricGate: BiometricGate? = nil) {
+        self.biometricGate = biometricGate
+    }
 
     /// True on T2 and Apple Silicon Macs. The whole tool is a no-op without it.
     public var isAvailable: Bool { SecureEnclave.isAvailable }
@@ -89,14 +104,14 @@ public final class SecureEnclaveService: @unchecked Sendable {
         let publicKey = try exportPublicKey(of: privateKey)
         let handle = Self.randomHandle()
         lock.lock()
-        keys[handle] = privateKey
+        keys[handle] = StoredKey(key: privateKey, requiresPrompt: requiresBiometry)
         lock.unlock()
         return (handle, publicKey)
     }
 
     /// The X9.63 public key for the SEP key named by `handle`.
     public func publicKey(for handle: Data) throws -> Data {
-        try exportPublicKey(of: try lookup(handle))
+        try exportPublicKey(of: try lookup(handle).key)
     }
 
     /// Sign a 32-byte SHA-256 `digest` with the SEP key named by `handle`,
@@ -105,7 +120,19 @@ public final class SecureEnclaveService: @unchecked Sendable {
     /// normalization happen here. Whatever an app does on top of an SE signature
     /// is the app's step, run unchanged against this faithful output.
     public func sign(handle: Data, digest: Data) throws -> Data {
-        let key = try lookup(handle)
+        let stored = try lookup(handle)
+        guard stored.requiresPrompt else {
+            return try Self.signDirectly(stored.key, digest: digest)
+        }
+        // A prompted key signs only through the biometric gate, which foregrounds and
+        // runs Touch ID. Without a gate (the CLI helper) the sign fails closed rather
+        // than prompting in a process that cannot present, or signing silently.
+        guard let biometricGate else { throw Failure.biometryUnavailable }
+        return try biometricGate.promptedSign(
+            key: stored.key, digest: digest, reason: "Sign with the Secure Enclave")
+    }
+
+    private static func signDirectly(_ key: SecKey, digest: Data) throws -> Data {
         var error: Unmanaged<CFError>?
         guard let signature = SecKeyCreateSignature(
             key,
@@ -137,11 +164,11 @@ public final class SecureEnclaveService: @unchecked Sendable {
         return x963
     }
 
-    private func lookup(_ handle: Data) throws -> SecKey {
+    private func lookup(_ handle: Data) throws -> StoredKey {
         lock.lock()
         defer { lock.unlock() }
-        guard let key = keys[handle] else { throw Failure.unknownHandle }
-        return key
+        guard let stored = keys[handle] else { throw Failure.unknownHandle }
+        return stored
     }
 
     private static func randomHandle() -> Data {

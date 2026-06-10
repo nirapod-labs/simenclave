@@ -76,7 +76,14 @@ public final class LoopbackListener: @unchecked Sendable {
                 if running { continue }
                 break
             }
-            serve(client)
+            // Serve each connection on its own thread, so a biometry sign that parks on a
+            // human prompt blocks only its connection: the accept loop keeps accepting and
+            // a silent sign on another connection keeps moving. The handle store is
+            // lock-guarded and the SEP serializes, so concurrent serves are safe.
+            let connection = Thread { [weak self] in self?.serve(client) }
+            connection.stackSize = 1 << 20
+            connection.name = "simenclave.connection"
+            connection.start()
         }
     }
 
