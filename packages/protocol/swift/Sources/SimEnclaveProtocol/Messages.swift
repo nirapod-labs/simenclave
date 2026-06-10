@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+
 import Foundation
 
 /// The class of a generated key. A silent key is usable without user presence; a
@@ -13,8 +16,11 @@ public enum KeyClass: UInt64, Sendable {
 /// raw `SecAccessControlCreateFlags` bit set; `protection` is the `kSecAttrAccessible`
 /// constant carried as its own string.
 public struct AccessControl: Equatable, Sendable {
+    /// The raw `SecAccessControlCreateFlags` bit set, exactly as captured.
     public let flags: UInt64
+    /// The `kSecAttrAccessible` constant, carried verbatim as text.
     public let protection: String
+    /// Wrap a captured `(flags, protection)` pair.
     public init(flags: UInt64, protection: String) {
         self.flags = flags
         self.protection = protection
@@ -23,11 +29,18 @@ public struct AccessControl: Equatable, Sendable {
 
 /// A request from the interposer to the helper.
 public enum Request: Equatable {
+    /// Version negotiation; the helper answers with the version it speaks.
     case hello(version: UInt64)
+    /// Mint a key in the host SEP, optionally relaying a captured access control.
     case generate(keyClass: KeyClass, accessControl: AccessControl?)
+    /// Fetch the public key for a handle without signing anything.
     case getPublicKey(handle: Data)
+    /// Sign a 32-byte SHA-256 digest with the key behind a handle.
     case sign(handle: Data, digest: Data)
+    /// Remove the key behind a handle.
     case delete(handle: Data)
+    /// Look up a persisted key by application tag; the UDID namespaces per
+    /// simulator as hygiene, not a boundary.
     case findByTag(appTag: Data, udid: String)
 }
 
@@ -41,12 +54,20 @@ public extension Request {
 
 /// A reply from the helper to the interposer.
 public enum Response: Equatable {
+    /// The version the helper speaks.
     case hello(version: UInt64)
+    /// A minted key: its handle and X9.63 public key.
     case generated(handle: Data, publicKey: Data)
+    /// The public key for a queried handle.
     case publicKey(Data)
+    /// A DER ECDSA signature, exactly as the SEP returned it.
     case signed(signature: Data)
+    /// The handle's key is gone.
     case deleted
+    /// An error: a device-shaped `(code, domain)` plus a human-readable message
+    /// that is never load-bearing.
     case failure(code: Int64, message: String, domain: UInt64)
+    /// A persisted key matched the tag: its handle and X9.63 public key.
     case found(handle: Data, publicKey: Data)
 }
 
@@ -70,6 +91,7 @@ public enum Wire {
     static let opFindByTag: UInt64 = 6
     static let statusOK: UInt64 = 0
     static let statusError: UInt64 = 1
+    /// The protocol version this codec implements.
     public static let version1: UInt64 = 1
 
     static let keyOp: UInt64 = 0
@@ -90,9 +112,11 @@ public enum Wire {
     static let keyUDID: UInt64 = 15
     static let keyAppTag: UInt64 = 16
 
-    /// Error-domain selectors for key 13. The default is the OSStatus domain used
-    /// before M3; the LocalAuthentication domain arrives with the biometry work.
+    /// The OSStatus error domain, the default for key 13; an OSStatus-domain
+    /// failure omits the key entirely, keeping the pre-M3 bytes.
     public static let domainOSStatus: UInt64 = 0
+    /// The LocalAuthentication error domain for key 13, carried by biometric
+    /// failures so the interposer rebuilds the LAError a device returns.
     public static let domainLAError: UInt64 = 1
 
     /// Encode a request, carrying the capability token in key 7. The token rides
@@ -163,6 +187,10 @@ public enum Wire {
         (try? CBORMap(decoding: payload))?.optionalText(keyAppID)
     }
 
+    /// Decode a request payload, dispatching on the op in key 0.
+    ///
+    /// - Throws: `ProtocolError` when the bytes are not canonical CBOR, a
+    ///   required field is absent, or the op is unknown.
     public static func decodeRequest(_ payload: Data) throws -> Request {
         let map = try CBORMap(decoding: payload)
         switch try map.uint(keyOp) {
@@ -187,6 +215,7 @@ public enum Wire {
         }
     }
 
+    /// Encode a response. Responses never carry the token.
     public static func encode(_ response: Response) -> Data {
         var writer = CBORWriter()
         switch response {
@@ -235,6 +264,10 @@ public enum Wire {
         return writer.data
     }
 
+    /// Decode a response payload, dispatching on status then op.
+    ///
+    /// - Throws: `ProtocolError` when the bytes are not canonical CBOR, a
+    ///   required field is absent, or the op or status is unknown.
     public static func decodeResponse(_ payload: Data) throws -> Response {
         let map = try CBORMap(decoding: payload)
         let status = try map.uint(keyStatus)

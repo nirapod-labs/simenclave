@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+
 import Foundation
 
 #if canImport(Darwin)
@@ -24,9 +27,14 @@ private func posixRead(_ fd: Int32, _ buffer: UnsafeMutableRawPointer, _ count: 
 /// writable. The file is opened `O_CREAT | O_EXCL | O_NOFOLLOW` with mode set by
 /// `fchmod` on the descriptor, and an existing path is refused, never truncated.
 public enum TokenFile {
+    /// Why a token-file operation was refused or failed.
     public enum TokenFileError: Error, Equatable {
+        /// The directory failed an invariant: a symlink, not a directory, not
+        /// owned by the user, or group or world writable.
         case directoryUnsafe(String)
+        /// The token file already exists; it is refused, never truncated.
         case alreadyExists(String)
+        /// An OS call failed; the message is the errno text.
         case system(String)
     }
 
@@ -38,6 +46,7 @@ public enum TokenFile {
         return NSHomeDirectory() + "/Library/Application Support/SimEnclave"
     }
 
+    /// The token file's path inside a directory.
     public static func path(inDirectory directory: String) -> String {
         directory + "/token"
     }

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+
 import Foundation
 import SimEnclaveHostCore
 import SimEnclaveProtocol
@@ -20,6 +23,8 @@ public struct RequestRouter: Sendable {
     private let gate: AuthGate
     private let approval: ApprovalGate?
 
+    /// Build the router over the shared service, the token gate, and the
+    /// optional approval gate (the CLI passes none and proceeds).
     public init(service: SecureEnclaveService, gate: AuthGate, approval: ApprovalGate? = nil) {
         self.service = service
         self.gate = gate

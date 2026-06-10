@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+
 import Foundation
 import SimEnclaveProtocol
 
@@ -7,8 +10,11 @@ import Darwin
 import Glibc
 #endif
 
+/// A socket-level failure distinct from a protocol decode failure.
 enum SocketError: Error, Equatable {
+    /// The peer closed mid-message; never surfaced as a partial read.
     case closed
+    /// An OS call failed; the message is the errno text.
     case system(String)
 }
 

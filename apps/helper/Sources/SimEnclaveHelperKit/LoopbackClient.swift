@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+
 import Foundation
 import SimEnclaveProtocol
 
@@ -11,12 +14,23 @@ import Glibc
 /// close. The interposer's C transport mirrors this; the helper's own tests and
 /// `simenclavectl` use this Swift one.
 public struct LoopbackClient: Sendable {
+    /// The helper's bound port on 127.0.0.1.
     public let port: UInt16
 
+    /// Point the client at a helper's port.
     public init(port: UInt16) {
         self.port = port
     }
 
+    /// Send one request and read its response over a fresh connection.
+    ///
+    /// - Parameters:
+    ///   - request: The request to encode and send.
+    ///   - token: The session capability token, carried in key 7.
+    ///   - appID: An app id for the approval prompt, carried in key 14 when set.
+    /// - Returns: The decoded response, which may be `.failure`.
+    /// - Throws: `SocketError` on a connect or I/O failure, `ProtocolError` on
+    ///   a malformed response.
     public func send(_ request: Request, token: CapabilityToken, appID: String? = nil) throws -> Response {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw SocketError.system("socket: \(errnoText())") }

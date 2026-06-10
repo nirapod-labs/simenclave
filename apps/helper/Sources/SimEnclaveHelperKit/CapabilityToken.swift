@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+
 import Foundation
 
 #if canImport(Security)
@@ -8,7 +11,9 @@ import Security
 /// the helper (see docs/design/m1-helper.md). The bytes are the credential; the
 /// hex form, in the token file and the scheme environment, is only transport.
 public struct CapabilityToken: Equatable, Sendable {
+    /// Token length in bytes; the gate compares exactly this many.
     public static let byteCount = 32
+    /// The raw token bytes, the actual credential.
     public let bytes: Data
 
     /// Mint a fresh token from the system CSPRNG.
@@ -53,10 +58,13 @@ public struct CapabilityToken: Equatable, Sendable {
 public struct AuthGate: Sendable {
     private let session: CapabilityToken
 
+    /// Bind the gate to this session's token.
     public init(session: CapabilityToken) {
         self.session = session
     }
 
+    /// Whether the presented token matches the session token, compared in
+    /// constant time over the fixed 32 bytes.
     public func accepts(_ presented: CapabilityToken) -> Bool {
         session.bytes.withUnsafeBytes { (sessionBytes: UnsafeRawBufferPointer) -> Bool in
             presented.bytes.withUnsafeBytes { (presentedBytes: UnsafeRawBufferPointer) -> Bool in

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+
 import Foundation
 import SimEnclaveProtocol
 
@@ -8,8 +11,10 @@ import Glibc
 #endif
 
 /// A loopback TCP server bound to `127.0.0.1`. It accepts connections on a
-/// background thread and serves framed CBOR requests through the router until the
-/// peer closes. M0 has no authentication; the capability token is M1.
+/// background thread, serves each connection on its own thread (so a request
+/// parked on a biometric prompt stalls nothing else), and answers framed CBOR
+/// requests through the router, which authenticates every request by its
+/// capability token.
 ///
 /// Loopback TCP, not a Unix socket, because the simulator shares the host network
 /// stack but virtualizes its filesystem, so a host socket file is not reachable
@@ -27,6 +32,7 @@ public final class LoopbackListener: @unchecked Sendable {
     /// The bound port, valid after `start`. Zero before then.
     public private(set) var port: UInt16 = 0
 
+    /// Build the listener around the router that answers each request.
     public init(router: RequestRouter) {
         self.router = router
     }

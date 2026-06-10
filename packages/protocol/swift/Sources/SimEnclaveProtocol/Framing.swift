@@ -1,9 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+
 import Foundation
 
 /// The length prefix that wraps each CBOR payload on the wire (see `SPEC.md`).
 /// The socket read loop (read four bytes, then that many) lives in the helper and
 /// the interposer; this provides the two pure halves they share.
 public enum Framing {
+    /// Largest frame either end accepts: 1 MiB, matching the C codec's SE_MAX_FRAME.
     public static let maxFrame = 1 << 20
 
     /// Prefix a payload with its big-endian `u32` length, ready to write.

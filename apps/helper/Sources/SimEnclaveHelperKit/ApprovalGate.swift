@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+
 import Foundation
 import SimEnclaveHostCore
 
@@ -13,6 +16,7 @@ public final class ApprovalGate: @unchecked Sendable {
     private var approved: Set<String> = []
     private let lock = NSLock()
 
+    /// Build the gate around the approver that presents the prompt.
     public init(approver: AppApprover) {
         self.approver = approver
     }

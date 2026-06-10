@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+
 import CryptoKit
 import Foundation
 import Security
@@ -12,16 +15,25 @@ import Security
 /// `SecKeyCreateSignature` in digest mode), so what it returns is byte-shaped like
 /// the device API. It adds no canonicalization of its own.
 ///
-/// M0 holds keys in memory for the helper's lifetime, keyed by an opaque handle.
-/// Keychain-tag persistence across helper restarts is M3; the handle is already
-/// opaque so that swap does not change the wire.
+/// Keys live in memory for the helper's lifetime, keyed by an opaque handle.
+/// Durable keychain persistence across helper restarts is M5 work (it needs a
+/// signed helper); the handle is already opaque so that swap will not change
+/// the wire.
 public final class SecureEnclaveService: @unchecked Sendable {
+    /// Why a service operation failed.
     public enum Failure: Error, Equatable {
+        /// This host has no usable Secure Enclave.
         case unavailable
+        /// The SEP refused to mint the key; the message carries the OSStatus text.
         case keyGeneration(String)
+        /// No key is stored under the presented handle.
         case unknownHandle
+        /// The SEP refused to sign; the message carries the OSStatus text.
         case signing(String)
+        /// The public key could not be exported to X9.63 bytes.
         case publicKeyExport(String)
+        /// A prompted sign was requested but no biometric gate is installed;
+        /// the headless helper fails closed rather than prompting nowhere.
         case biometryUnavailable
     }
 
