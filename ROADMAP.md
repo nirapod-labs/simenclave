@@ -76,11 +76,11 @@ Done: the passthrough invariant holds (a first-class test and mechanism C), a ta
 
 ### M3: fidelity and biometry
 
-Status: not started. Target: 2026-07-10 to 07-16.
+Status: not started. Target: 2026-07-10 to 07-16. Design: `docs/design/m3-fidelity-biometry.md`.
 
-- [ ] Biometry-gated keys: the helper brings itself foreground and runs `LAContext`, so you get a real Mac Touch ID prompt
-- [ ] Error parity: a cancel or a failed biometric maps to the exact `OSStatus` a device returns, so `do/catch` written for the device behaves the same here
-- [ ] Persistence across relaunches, so a known fixture key is still there next run
+- [ ] Biometry-gated keys: the interposer captures the access control at its source (it hooks `SecAccessControlCreateWithFlags`, since the `SecAccessControlRef` is opaque) and relays it, and the helper brings itself foreground and runs `LAContext`, so a biometric sign raises a real Mac Touch ID prompt
+- [ ] Error parity: the helper classifies its macOS failure and maps it to the exact `(domain, code)` a device returns, from a committed device-reference table, so `do/catch` written for the device behaves the same here
+- [ ] Persistence across relaunches via permanent, namespaced keychain keys and a `FIND_BY_TAG` lookup, so a known fixture key is still there next run, with keychain confinement (the helper never touches a key that is not its own) and per-UDID namespacing for hygiene, not as a security boundary
 - [ ] The secondary hooks that keep the shadow ref honest: `SecKeyCopyExternalRepresentation` returns the not-exportable error a real SE key does, and `SecKeyCopyAttributes` reports the SE token and the private key class
 - [ ] The menubar's per-app approval prompt, keyed on an app id the interposer reports, foreground GUI that pairs with the biometric prompt here (moved from M2; a convenience, not an access boundary)
 
