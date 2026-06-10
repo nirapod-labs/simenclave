@@ -1,0 +1,16 @@
+name: ci-hardware
+
+# Real Secure Enclave tests. These need a bare-metal Apple Silicon Mac with an
+# actual SEP. Hosted runners are VMs without a SEP, so they cannot run this.
+# Activated in M0 and M4 once the self-hosted runner is provisioned and there is
+# code to test. Manual until then, so it never blocks a PR.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  secure-enclave:
+    # Becomes: runs-on: [self-hosted, macOS, simenclave-se]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Placeholder. Wire up host-core and interpose tests on the self-hosted SE runner."

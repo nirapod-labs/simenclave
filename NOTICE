@@ -1,0 +1,9 @@
+SimEnclave
+Copyright 2026 Nirapod Labs
+
+This product includes software developed at Nirapod Labs.
+
+Third-party components are listed here as they are added. The interposer vendors
+Dobby (https://github.com/jmpews/Dobby, Apache-2.0) as its default hook backend;
+its license and notices are reproduced under packages/interpose/vendor/ when it
+lands in M2.

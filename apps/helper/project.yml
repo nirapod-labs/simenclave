@@ -1,0 +1,20 @@
+# XcodeGen spec for the SimEnclave helper. This is the committed source of the
+# .xcodeproj. The sources, the entitlements (com.apple.application-identifier,
+# via the Keychain Sharing capability), and signing are filled in during M1.
+name: SimEnclaveHelper
+options:
+  bundleIdPrefix: com.nirapod.simenclave
+  deploymentTarget:
+    macOS: "13.0"
+targets:
+  SimEnclaveHelper:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+        optional: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nirapod.simenclave.helper
+        INFOPLIST_KEY_LSUIElement: true
+        MACOSX_DEPLOYMENT_TARGET: "13.0"

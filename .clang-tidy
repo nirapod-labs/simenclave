@@ -1,0 +1,3 @@
+Checks: "clang-analyzer-*,bugprone-*,performance-*,readability-*,-readability-identifier-length"
+WarningsAsErrors: ""
+HeaderFilterRegex: "packages/interpose/(src|include)/.*"

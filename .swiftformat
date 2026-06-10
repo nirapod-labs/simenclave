@@ -1,0 +1,5 @@
+--indent 4
+--maxwidth 100
+--swiftversion 5.10
+--self remove
+--importgrouping testable-bottom
