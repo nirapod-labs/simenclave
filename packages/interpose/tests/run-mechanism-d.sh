@@ -22,10 +22,11 @@ echo "device: $DEVICE"
 xcrun simctl boot "$DEVICE" 2>/dev/null
 xcrun simctl bootstatus "$DEVICE" >/dev/null 2>&1
 
+SIM_HOME="$(mktemp -d)"
 OUT="$(mktemp)"
-"$HELPER" >"$OUT" 2>&1 &
+SIMENCLAVE_HOME="$SIM_HOME" "$HELPER" >"$OUT" 2>&1 &
 HELPER_PID=$!
-trap 'kill "$HELPER_PID" 2>/dev/null' EXIT
+trap 'kill "$HELPER_PID" 2>/dev/null; rm -rf "$SIM_HOME"' EXIT
 PORT=""
 for _ in $(seq 1 100); do
   PORT="$(grep -o '"port":[0-9]*' "$OUT" 2>/dev/null | grep -o '[0-9]*' | head -1)"
@@ -34,6 +35,9 @@ for _ in $(seq 1 100); do
 done
 [ -z "$PORT" ] && { echo "helper did not start"; cat "$OUT"; exit 1; }
 echo "helper on 127.0.0.1:$PORT"
+
+TOKEN="$(cat "$SIM_HOME/token" 2>/dev/null)"
+[ -z "$TOKEN" ] && { echo "no token file"; cat "$OUT"; exit 1; }
 
 echo ""
 echo "--- control: spawn in the simulator with NO interposer (must fail) ---"
@@ -44,6 +48,7 @@ echo ""
 echo "--- mechanism D: spawn with the interposer injected ---"
 SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="$DYLIB" \
 SIMCTL_CHILD_SIMENCLAVE_PORT="$PORT" \
+SIMCTL_CHILD_SIMENCLAVE_TOKEN="$TOKEN" \
 xcrun simctl spawn "$DEVICE" "$DEMO"
 RC=$?
 echo "injected exit: $RC"
