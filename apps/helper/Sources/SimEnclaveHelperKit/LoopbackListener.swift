@@ -84,8 +84,8 @@ public final class LoopbackListener: @unchecked Sendable {
         defer { close(fd) }
         while true {
             do {
-                let request = try Wire.decodeRequest(readFrame(fd))
-                try writeFrame(fd, Wire.encode(router.handle(request)))
+                let response = router.respond(toPayload: try readFrame(fd))
+                try writeFrame(fd, Wire.encode(response))
             } catch {
                 // Peer closed, or a malformed frame: drop this connection.
                 return

@@ -17,7 +17,7 @@ public struct LoopbackClient: Sendable {
         self.port = port
     }
 
-    public func send(_ request: Request) throws -> Response {
+    public func send(_ request: Request, token: CapabilityToken) throws -> Response {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw SocketError.system("socket: \(errnoText())") }
         defer { close(fd) }
@@ -34,7 +34,7 @@ public struct LoopbackClient: Sendable {
         }
         guard connected == 0 else { throw SocketError.system("connect: \(errnoText())") }
 
-        try writeFrame(fd, Wire.encode(request))
+        try writeFrame(fd, Wire.encode(request, token: token.bytes))
         return try Wire.decodeResponse(readFrame(fd))
     }
 }
