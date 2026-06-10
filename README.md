@@ -8,7 +8,7 @@ It exists because the iOS Simulator has no Secure Enclave. That means the one th
 
 ## How it works, in one paragraph
 
-Your Mac has a real Secure Enclave. A signed menubar helper owns a P-256 key inside it. When a simulated app calls `SecKeyCreateSignature`, an injected interposer, loaded only through a debug scheme environment variable, sends the digest to the helper over an authenticated loopback socket. The helper signs in the Mac's SEP and the signature comes back. The private key never leaves the chip. The only things that cross the wire are a handle, a public key, a digest, and a signature, which is exactly what an app on a real device already handles.
+Your Mac has a real Secure Enclave. A menubar helper owns a P-256 key inside it. When a simulated app calls `SecKeyCreateSignature`, an injected interposer, loaded only through a debug scheme environment variable, sends the digest to the helper over an authenticated loopback socket. The helper signs in the Mac's SEP and the signature comes back. The private key never leaves the chip. The only things that cross the wire are a handle, a public key, a digest, and a signature, which is exactly what an app on a real device already handles.
 
 ## Scope
 
