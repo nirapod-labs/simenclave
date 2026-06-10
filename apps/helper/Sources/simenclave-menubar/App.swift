@@ -6,15 +6,40 @@
 
 import AppKit
 import Foundation
+import Security
 import SimEnclaveHelperKit
 import SimEnclaveHostCore
+
+/// The real biometric gate, for the menubar (AppKit) helper. It brings the helper
+/// foreground on the main thread, so the Mac Touch ID sheet is attributed and visible,
+/// then signs on the calling connection thread, where SecKeyCreateSignature triggers the
+/// SEP's biometric prompt and blocks for the human while the main run loop presents it.
+/// Signing on the main thread would deadlock the very run loop the sheet needs, so it
+/// stays on the connection thread. A custom prompt reason via a bound LAContext, and the
+/// exact binding, are the refinement to confirm on real hardware; the prompt itself fires
+/// from foreground plus the sign. This path is verified by a developer on the menubar
+/// build, the same as the menubar UI; the headless suite drives the seam through a mock.
+final class AppKitBiometricGate: BiometricGate {
+    func promptedSign(key: SecKey, digest: Data, reason _: String) throws -> Data {
+        DispatchQueue.main.sync { NSApp.activate(ignoringOtherApps: true) }
+        var error: Unmanaged<CFError>?
+        guard let signature = SecKeyCreateSignature(
+            key, .ecdsaSignatureDigestX962SHA256, digest as CFData, &error
+        ) as Data? else {
+            let message = (error?.takeRetainedValue())
+                .map { CFErrorCopyDescription($0) as String } ?? "biometric sign failed"
+            throw SecureEnclaveService.Failure.signing(message)
+        }
+        return signature
+    }
+}
 
 /// The service lifecycle behind the menu: mint the token, write the file, start
 /// the loopback listener, and tear all of it down on stop. This is the same kit
 /// the CLI uses; the menu is only a face over it.
 @MainActor
 final class HelperController {
-    private let service = SecureEnclaveService()
+    private let service = SecureEnclaveService(biometricGate: AppKitBiometricGate())
     private var listener: LoopbackListener?
     private var tokenDirectory: String?
     private(set) var port: UInt16 = 0
