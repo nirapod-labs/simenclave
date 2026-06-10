@@ -2,7 +2,9 @@ name: release
 
 # Build and sign the helper, notarize and staple it, build the interposer for
 # the simulator slice, attach both to a GitHub release, and update the Homebrew
-# cask. Implemented in M5.
+# cask. Implemented in M5. The fence gates it already: no release job runs
+# before the static fence assertions pass, and the M5 packaging step must run
+# fence-check.sh --bundle on the built .app before attaching it.
 
 on:
   workflow_dispatch:
@@ -13,7 +15,14 @@ permissions:
   contents: read
 
 jobs:
-  release:
+  fence:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Placeholder. Implement sign, notarize, and package in M5."
+      - uses: actions/checkout@v4
+      - run: bash scripts/fence-check.sh
+
+  release:
+    needs: fence
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Placeholder. Implement sign, notarize, and package in M5; run fence-check.sh --bundle on the built .app."

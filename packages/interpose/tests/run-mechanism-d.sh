@@ -39,10 +39,26 @@ echo "helper on 127.0.0.1:$PORT"
 TOKEN="$(cat "$SIM_HOME/token" 2>/dev/null)"
 [ -z "$TOKEN" ] && { echo "no token file"; cat "$OUT"; exit 1; }
 
+# The demo exits 2 on the stock no-SEP create failure and 0 on a full verify.
+# Three legs, all asserted: the control (no interposer) and the fence leg
+# (interposer injected but unconfigured) must both show the identical stock
+# failure, and the configured injection must verify. The fence leg is the
+# runtime fence proof: a stray injection without a wired scheme behaves exactly
+# like no injection at all.
+STOCK_FAILURE=2
+
 echo ""
 echo "--- control: spawn in the simulator with NO interposer (must fail) ---"
 xcrun simctl spawn "$DEVICE" "$DEMO"
-echo "control exit: $?"
+CONTROL_RC=$?
+echo "control exit: $CONTROL_RC"
+
+echo ""
+echo "--- fence: interposer injected but unconfigured (must match the control) ---"
+SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="$DYLIB" \
+xcrun simctl spawn "$DEVICE" "$DEMO"
+INERT_RC=$?
+echo "unconfigured exit: $INERT_RC"
 
 echo ""
 echo "--- mechanism D: spawn with the interposer injected ---"
@@ -52,4 +68,14 @@ SIMCTL_CHILD_SIMENCLAVE_TOKEN="$TOKEN" \
 xcrun simctl spawn "$DEVICE" "$DEMO"
 RC=$?
 echo "injected exit: $RC"
-exit $RC
+
+echo ""
+FAIL=0
+[ "$CONTROL_RC" -eq "$STOCK_FAILURE" ] \
+  || { echo "FENCE FAIL: control expected the stock create failure ($STOCK_FAILURE), got $CONTROL_RC"; FAIL=1; }
+[ "$INERT_RC" -eq "$STOCK_FAILURE" ] \
+  || { echo "FENCE FAIL: unconfigured injection must match the stock failure ($STOCK_FAILURE), got $INERT_RC"; FAIL=1; }
+[ "$RC" -eq 0 ] \
+  || { echo "MECHANISM D FAIL: injected run exit $RC"; FAIL=1; }
+[ "$FAIL" -eq 0 ] && echo "MECHANISM D + FENCE: ok"
+exit $FAIL
