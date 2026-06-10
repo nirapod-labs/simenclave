@@ -17,6 +17,7 @@ enum {
   K_ERR = 6,
   K_TOKEN = 7,
   K_VERSION = 8,
+  K_CLASS = 9,
   K_ERR_CODE = 10,
   K_ACCESS_FLAGS = 11,
   K_PROTECTION = 12,
@@ -95,6 +96,27 @@ int se_encode_generate(const uint8_t *token, size_t token_len, uint8_t *out, siz
   w_head(&w, CBOR_UINT, OP_GENERATE);
   w_head(&w, CBOR_UINT, K_TOKEN);
   w_bytes(&w, CBOR_BYTES, token, token_len);
+  return w.overflow ? -1 : (int)w.pos;
+}
+
+int se_encode_generate_ac(const uint8_t *token, size_t token_len, int biometry, uint64_t flags,
+                          const uint8_t *protection, size_t protection_len, uint8_t *out,
+                          size_t cap) {
+  writer w = {out, cap, 0, 0};
+  // map: op, token, [class if biometry], accessFlags, protection. Keys ascending.
+  w_head(&w, CBOR_MAP, biometry ? 5 : 4);
+  w_head(&w, CBOR_UINT, K_OP);
+  w_head(&w, CBOR_UINT, OP_GENERATE);
+  w_head(&w, CBOR_UINT, K_TOKEN);
+  w_bytes(&w, CBOR_BYTES, token, token_len);
+  if (biometry) {
+    w_head(&w, CBOR_UINT, K_CLASS);
+    w_head(&w, CBOR_UINT, 1);
+  }
+  w_head(&w, CBOR_UINT, K_ACCESS_FLAGS);
+  w_head(&w, CBOR_UINT, flags);
+  w_head(&w, CBOR_UINT, K_PROTECTION);
+  w_bytes(&w, CBOR_TEXT, protection, protection_len);
   return w.overflow ? -1 : (int)w.pos;
 }
 

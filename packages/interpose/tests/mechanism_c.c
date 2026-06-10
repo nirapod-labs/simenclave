@@ -105,6 +105,40 @@ int main(void) {
     fails++;
   }
 
+  // Biometry-gated create. The harness builds an access control with a user-presence
+  // constraint (which needs no specific biometric hardware to create), the
+  // SecAccessControlCreateWithFlags hook captures it, and the create relays the flags
+  // and protection so the helper builds a matching gate in the SEP. The create returns
+  // a key and a public key without prompting, since only key use prompts, which proves
+  // the host accepted the relayed flags across the iOS-to-macOS boundary.
+  SecAccessControlRef bioAccess = SecAccessControlCreateWithFlags(
+      kCFAllocatorDefault, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+      kSecAccessControlPrivateKeyUsage | kSecAccessControlUserPresence, NULL);
+  if (bioAccess) {
+    const void *bio_priv_keys[] = {kSecAttrAccessControl};
+    const void *bio_priv_values[] = {bioAccess};
+    CFDictionaryRef bio_priv =
+        CFDictionaryCreate(NULL, bio_priv_keys, bio_priv_values, 1, &kCFTypeDictionaryKeyCallBacks,
+                           &kCFTypeDictionaryValueCallBacks);
+    const void *bio_keys[] = {kSecAttrTokenID, kSecPrivateKeyAttrs};
+    const void *bio_values[] = {kSecAttrTokenIDSecureEnclave, bio_priv};
+    CFDictionaryRef bio_params =
+        CFDictionaryCreate(NULL, bio_keys, bio_values, 2, &kCFTypeDictionaryKeyCallBacks,
+                           &kCFTypeDictionaryValueCallBacks);
+    SecKeyRef bio_key = SecKeyCreateRandomKey(bio_params, NULL);
+    SecKeyRef bio_pub = bio_key ? SecKeyCopyPublicKey(bio_key) : NULL;
+    printf("biometry create: %d\n", bio_key != NULL && bio_pub != NULL);
+    if (!bio_key || !bio_pub) fails++;
+    if (bio_pub) CFRelease(bio_pub);
+    if (bio_key) CFRelease(bio_key);
+    if (bio_priv) CFRelease(bio_priv);
+    if (bio_params) CFRelease(bio_params);
+    CFRelease(bioAccess);
+  } else {
+    printf("FAIL: building a user-presence access control returned NULL\n");
+    fails++;
+  }
+
   // SecItem tag round-trip: a key created permanent with a tag is found by that
   // tag, signs through the host, is deleted by tag, and is gone afterward.
   uint8_t tag_bytes[] = {'s', 'e', '.', 'r', 'o', 'u', 'n', 'd'};

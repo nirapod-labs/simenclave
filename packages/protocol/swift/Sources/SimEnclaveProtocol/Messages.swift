@@ -8,14 +8,35 @@ public enum KeyClass: UInt64, Sendable {
     case biometry = 1
 }
 
+/// The access control an app attached to a Secure Enclave key, captured by the
+/// interposer and relayed verbatim so the helper rebuilds the same gate. `flags` is the
+/// raw `SecAccessControlCreateFlags` bit set; `protection` is the `kSecAttrAccessible`
+/// constant carried as its own string.
+public struct AccessControl: Equatable, Sendable {
+    public let flags: UInt64
+    public let protection: String
+    public init(flags: UInt64, protection: String) {
+        self.flags = flags
+        self.protection = protection
+    }
+}
+
 /// A request from the interposer to the helper.
 public enum Request: Equatable {
     case hello(version: UInt64)
-    case generate(keyClass: KeyClass)
+    case generate(keyClass: KeyClass, accessControl: AccessControl?)
     case getPublicKey(handle: Data)
     case sign(handle: Data, digest: Data)
     case delete(handle: Data)
     case findByTag(appTag: Data, udid: String)
+}
+
+public extension Request {
+    /// A generate with no relayed access control: the helper applies its default for
+    /// the key class. Keeps the pre-M3 call sites unchanged.
+    static func generate(keyClass: KeyClass) -> Request {
+        .generate(keyClass: keyClass, accessControl: nil)
+    }
 }
 
 /// A reply from the helper to the interposer.
@@ -84,10 +105,20 @@ public enum Wire {
             writer.uint(keyOp); writer.uint(opHello)
             writer.uint(keyToken); writer.bytes(token)
             writer.uint(keyVersion); writer.uint(version)
-        case let .generate(keyClass):
-            // A silent key omits key 9, keeping the bytes the M0 interposer sends;
-            // a biometry key adds it.
-            if keyClass == .silent {
+        case let .generate(keyClass, accessControl):
+            if let ac = accessControl {
+                // With an access control: op, token, key 9 if biometry, then the raw
+                // flags (11) and the protection (12), keys ascending.
+                let biometry = keyClass == .biometry
+                writer.mapHeader(biometry ? 5 : 4)
+                writer.uint(keyOp); writer.uint(opGenerate)
+                writer.uint(keyToken); writer.bytes(token)
+                if biometry { writer.uint(keyClassKey); writer.uint(KeyClass.biometry.rawValue) }
+                writer.uint(keyAccessFlags); writer.uint(ac.flags)
+                writer.uint(keyProtection); writer.text(ac.protection)
+            } else if keyClass == .silent {
+                // A silent key with no access control omits key 9, keeping the bytes the
+                // M0 interposer sends.
                 writer.mapHeader(2)
                 writer.uint(keyOp); writer.uint(opGenerate)
                 writer.uint(keyToken); writer.bytes(token)
@@ -136,7 +167,11 @@ public enum Wire {
         case opHello:
             return .hello(version: try map.uint(keyVersion))
         case opGenerate:
-            return .generate(keyClass: KeyClass(rawValue: map.optionalUint(keyClassKey) ?? 0) ?? .silent)
+            let keyClass = KeyClass(rawValue: map.optionalUint(keyClassKey) ?? 0) ?? .silent
+            let accessControl = try map.optionalUint(keyAccessFlags).map {
+                AccessControl(flags: $0, protection: try map.text(keyProtection))
+            }
+            return .generate(keyClass: keyClass, accessControl: accessControl)
         case opGetPublicKey:
             return .getPublicKey(handle: try map.bytes(keyHandle))
         case opSign:

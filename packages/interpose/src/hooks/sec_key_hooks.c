@@ -6,19 +6,31 @@
 // within the session; durable persistence across relaunches is M3.
 #include "../../include/simenclave_interpose.h"
 #include "../backend/hook_backend.h"
+#include "../registry/access_control.h"
 #include "../registry/shadow_ref.h"
 #include "../transport/client.h"
 
 #include <CommonCrypto/CommonCrypto.h>
 #include <Security/Security.h>
+#include <string.h>
 
 typedef SecKeyRef (*create_random_key_fn)(CFDictionaryRef, CFErrorRef *);
 typedef SecKeyRef (*copy_public_key_fn)(SecKeyRef);
 typedef CFDataRef (*create_signature_fn)(SecKeyRef, SecKeyAlgorithm, CFDataRef, CFErrorRef *);
+typedef SecAccessControlRef (*ac_create_with_flags_fn)(CFAllocatorRef, CFTypeRef,
+                                                       SecAccessControlCreateFlags, CFErrorRef *);
 
 static create_random_key_fn orig_create_random_key;
 static copy_public_key_fn orig_copy_public_key;
 static create_signature_fn orig_create_signature;
+static ac_create_with_flags_fn orig_ac_create_with_flags;
+
+// The access-control flags that make a key require a prompt at sign time: any
+// biometric or user-presence constraint. A key carrying any of these is the biometry
+// class on the wire (key 9); a key with none is silent.
+static const SecAccessControlCreateFlags SE_PROMPT_FLAGS =
+    kSecAccessControlUserPresence | kSecAccessControlBiometryAny |
+    kSecAccessControlBiometryCurrentSet | kSecAccessControlDevicePasscode;
 
 static simenclave_hook_stats g_stats = {0, 0, 0};
 
@@ -64,6 +76,18 @@ static CFDataRef extract_permanent_tag(CFDictionaryRef parameters) {
   return NULL;
 }
 
+// The kSecAttrAccessControl an SE create passes lives in kSecPrivateKeyAttrs, with the
+// top level as a fallback. Returns the ref (borrowed) or NULL.
+static SecAccessControlRef extract_access_control(CFDictionaryRef parameters) {
+  if (!parameters) return NULL;
+  CFDictionaryRef attrs = parameters;
+  const void *priv = CFDictionaryGetValue(parameters, kSecPrivateKeyAttrs);
+  if (priv && CFGetTypeID(priv) == CFDictionaryGetTypeID()) attrs = (CFDictionaryRef)priv;
+  const void *ac = CFDictionaryGetValue(attrs, kSecAttrAccessControl);
+  if (ac && CFGetTypeID(ac) == SecAccessControlGetTypeID()) return (SecAccessControlRef)ac;
+  return NULL;
+}
+
 // Build a public SecKeyRef from a 65-byte uncompressed X9.63 point. The length
 // and 0x04 lead byte are validated so a malformed point fails closed (NULL),
 // never a half-built key.
@@ -91,6 +115,25 @@ static int carrier_cannot_sign(SecKeyRef carrier) {
                                      kSecKeyAlgorithmECDSASignatureDigestX962SHA256);
 }
 
+// Capture the (protection, flags) the app passed to SecAccessControlCreateWithFlags,
+// keyed by the returned ref, so the create hook can read the otherwise-opaque access
+// control later. Always returns the real result untouched; the capture is a side
+// effect, so passthrough holds for every caller, Secure Enclave create or not.
+static SecAccessControlRef hook_ac_create_with_flags(CFAllocatorRef allocator,
+                                                     CFTypeRef protection,
+                                                     SecAccessControlCreateFlags flags,
+                                                     CFErrorRef *error) {
+  if (!orig_ac_create_with_flags) { // install-window guard, fail closed with an error
+    set_error(error, errSecNotAvailable);
+    return NULL;
+  }
+  SecAccessControlRef ac = orig_ac_create_with_flags(allocator, protection, flags, error);
+  if (ac && protection && CFGetTypeID(protection) == CFStringGetTypeID()) {
+    se_ac_capture(ac, (CFStringRef)protection, flags);
+  }
+  return ac;
+}
+
 static SecKeyRef hook_create_random_key(CFDictionaryRef parameters, CFErrorRef *error) {
   if (!orig_create_random_key) { // install-window guard, fail closed with an error
     set_error(error, errSecNotAvailable);
@@ -100,8 +143,29 @@ static SecKeyRef hook_create_random_key(CFDictionaryRef parameters, CFErrorRef *
     return orig_create_random_key(parameters, error);
   }
 
+  // Read the app's access control, if it passed one whose policy was captured at its
+  // source (the SecAccessControlCreateWithFlags hook). The flags pick the key class
+  // for the prompt, and the flags and protection are relayed verbatim so the helper
+  // rebuilds the same gate. An access control that was not captured is a miss, and the
+  // create routes as a plain silent key rather than guessing a gate.
   se_response response;
-  se_status st = se_client_generate(&response);
+  se_status st;
+  SecAccessControlRef ac = extract_access_control(parameters);
+  SecAccessControlCreateFlags flags = 0;
+  CFStringRef protection = NULL;
+  if (ac && se_ac_lookup(ac, &flags, &protection)) {
+    char prot[64];
+    size_t prot_len = 0;
+    if (protection && CFStringGetCString(protection, prot, sizeof(prot), kCFStringEncodingUTF8)) {
+      prot_len = strlen(prot);
+    }
+    int biometry = (flags & SE_PROMPT_FLAGS) != 0;
+    st = se_client_generate_ac(biometry, (uint64_t)flags, (const uint8_t *)prot, prot_len,
+                               &response);
+    if (protection) CFRelease(protection); // se_ac_lookup returned it +1
+  } else {
+    st = se_client_generate(&response);
+  }
   if (st != SE_OK || response.kind != SE_RESP_GENERATED) {
     // An SE create yields a host-backed key or fails; it never falls through to a
     // software create, which would defeat fail-closed at create time.
@@ -303,6 +367,8 @@ int simenclave_install_hooks(void) {
       {"SecKeyCreateRandomKey", (void *)hook_create_random_key, (void **)&orig_create_random_key},
       {"SecKeyCopyPublicKey", (void *)hook_copy_public_key, (void **)&orig_copy_public_key},
       {"SecKeyCreateSignature", (void *)hook_create_signature, (void **)&orig_create_signature},
+      {"SecAccessControlCreateWithFlags", (void *)hook_ac_create_with_flags,
+       (void **)&orig_ac_create_with_flags},
       {"SecItemAdd", (void *)hook_item_add, (void **)&orig_item_add},
       {"SecItemCopyMatching", (void *)hook_item_copy_matching, (void **)&orig_item_copy_matching},
       {"SecItemDelete", (void *)hook_item_delete, (void **)&orig_item_delete},

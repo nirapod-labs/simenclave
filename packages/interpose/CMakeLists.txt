@@ -4,6 +4,7 @@
 add_library(interpose_core STATIC
   src/hooks/sec_key_hooks.c
   src/registry/shadow_ref.c
+  src/registry/access_control.c
   src/transport/client.c
   src/backend/dobby_backend.c
 )

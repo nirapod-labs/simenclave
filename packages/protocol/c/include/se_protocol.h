@@ -51,6 +51,14 @@ typedef struct {
 // token. Returns bytes written, or -1 if the buffer is too small.
 int se_encode_generate(const uint8_t *token, size_t token_len, uint8_t *out, size_t cap);
 
+// Encode a GENERATE request that carries an access-control descriptor: the key class
+// (biometry adds key 9), the raw SecAccessControlCreateFlags (key 11), and the
+// protection constant relayed verbatim as text (key 12). The plain se_encode_generate
+// stays the no-access-control form, so its bytes are unchanged.
+int se_encode_generate_ac(const uint8_t *token, size_t token_len, int biometry, uint64_t flags,
+                          const uint8_t *protection, size_t protection_len, uint8_t *out,
+                          size_t cap);
+
 // Encode a SIGN request payload carrying the token, the handle, and a 32-byte
 // digest.
 int se_encode_sign(const uint8_t *token, size_t token_len, const uint8_t *handle, size_t handle_len,
