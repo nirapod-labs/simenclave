@@ -47,8 +47,11 @@ public struct RequestRouter: Sendable {
                     ? .hello(version: Wire.version1)
                     : .failure(code: OSStatusCode.internalError,
                                message: "unsupported protocol version \(version)")
-            case let .generate(keyClass):
-                let (handle, publicKey) = try service.generate(requiresBiometry: keyClass == .biometry)
+            case let .generate(keyClass, accessControl):
+                let (handle, publicKey) = try service.generate(
+                    requiresBiometry: keyClass == .biometry,
+                    accessFlags: accessControl.map { UInt($0.flags) },
+                    protection: accessControl?.protection)
                 return .generated(handle: handle, publicKey: publicKey)
             case let .getPublicKey(handle):
                 return .publicKey(try service.publicKey(for: handle))

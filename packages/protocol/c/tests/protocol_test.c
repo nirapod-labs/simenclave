@@ -26,6 +26,20 @@ int main(void) {
             memcmp(buf + 6, token, 32) == 0,
         "generate bytes");
 
+  // GENERATE with an access control, biometry: { 0:2, 7:token, 9:1, 11:flags, 12:"ak" }.
+  n = se_encode_generate_ac(token, sizeof(token), 1, 5, (const uint8_t *)"ak", 2, buf, sizeof(buf));
+  uint8_t gen_ac_prefix[] = {0xA5, 0x00, 0x02, 0x07, 0x58, 0x20};
+  CHECK(n == 46 && memcmp(buf, gen_ac_prefix, sizeof(gen_ac_prefix)) == 0 &&
+            memcmp(buf + 6, token, 32) == 0 && buf[38] == 0x09 && buf[39] == 0x01 &&
+            buf[40] == 0x0B && buf[41] == 0x05 && buf[42] == 0x0C && buf[43] == 0x62 &&
+            buf[44] == 'a' && buf[45] == 'k',
+        "generate_ac bytes");
+
+  // A silent key with an access control omits key 9: map(4) { 0:2, 7:token, 11, 12 }.
+  n = se_encode_generate_ac(token, sizeof(token), 0, 5, (const uint8_t *)"ak", 2, buf, sizeof(buf));
+  CHECK(n == 44 && buf[0] == 0xA4 && buf[38] == 0x0B && buf[39] == 0x05 && buf[40] == 0x0C,
+        "generate_ac silent bytes");
+
   // SIGN { 0:4, 2:handle(4), 4:digest(32), 7:token(32) } in canonical form.
   uint8_t handle[4] = {0xAA, 0xAA, 0xAA, 0xAA};
   uint8_t digest[32];

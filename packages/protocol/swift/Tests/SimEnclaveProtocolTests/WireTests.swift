@@ -21,6 +21,21 @@ final class WireTests: XCTestCase {
         XCTAssertEqual(try Wire.decodeRequest(payload), .generate(keyClass: .biometry))
     }
 
+    func testGenerateWithAccessControlRoundTrips() throws {
+        let token = Data(repeating: 0xAB, count: 32)
+        let ac = AccessControl(flags: 5, protection: "ak")
+        let request = Request.generate(keyClass: .biometry, accessControl: ac)
+        let payload = Wire.encode(request, token: token)
+        // map(5) { 0:2, 7:token, 9:1, 11:flags, 12:protection }, ending 0B 05 0C 62 'a' 'k'.
+        XCTAssertEqual(payload.first, 0xA5)
+        XCTAssertEqual(payload.suffix(6), Data([0x0B, 0x05, 0x0C, 0x62, 0x61, 0x6B]))
+        XCTAssertEqual(try Wire.decodeRequest(payload), request)
+        // A silent key with an access control omits key 9: map(4).
+        let silent = Request.generate(keyClass: .silent, accessControl: ac)
+        XCTAssertEqual(Wire.encode(silent, token: token).first, 0xA4)
+        XCTAssertEqual(try Wire.decodeRequest(Wire.encode(silent, token: token)), silent)
+    }
+
     func testSignRequestRoundTrips() throws {
         let handle = Data((0 ..< 16).map { UInt8($0) })
         let digest = Data(repeating: 0x5A, count: 32)

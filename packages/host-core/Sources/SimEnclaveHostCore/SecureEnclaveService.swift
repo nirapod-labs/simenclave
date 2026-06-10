@@ -39,20 +39,36 @@ public final class SecureEnclaveService: @unchecked Sendable {
     /// `0x04` lead byte then the two 32-byte coordinates), which is what the device
     /// returns from `SecKeyCopyExternalRepresentation`. The biometric prompt at
     /// sign time and its error parity are M3.
-    public func generate(requiresBiometry: Bool = false) throws -> (handle: Data, publicKey: Data) {
+    public func generate(requiresBiometry: Bool = false, accessFlags: UInt? = nil,
+                         protection: String? = nil) throws -> (handle: Data, publicKey: Data) {
         guard SecureEnclave.isAvailable else { throw Failure.unavailable }
 
-        let flags: SecAccessControlCreateFlags = requiresBiometry
-            ? [.privateKeyUsage, .biometryCurrentSet]
-            : [.privateKeyUsage]
         var accessError: Unmanaged<CFError>?
-        guard let access = SecAccessControlCreateWithFlags(
-            kCFAllocatorDefault,
-            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            flags,
-            &accessError
-        ) else {
-            throw Failure.keyGeneration(Self.message(accessError))
+        let access: SecAccessControl
+        if let accessFlags {
+            // Rebuild the app's gate from the relayed flags and protection, verbatim, so
+            // the SEP enforces exactly what the app asked for. Fail closed if the host
+            // rejects the flag set rather than build a weaker gate than was asked.
+            let protectionClass: CFString = protection.map { $0 as CFString }
+                ?? kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            guard let built = SecAccessControlCreateWithFlags(
+                kCFAllocatorDefault,
+                protectionClass,
+                SecAccessControlCreateFlags(rawValue: CFOptionFlags(accessFlags)),
+                &accessError
+            ) else { throw Failure.keyGeneration(Self.message(accessError)) }
+            access = built
+        } else {
+            let flags: SecAccessControlCreateFlags = requiresBiometry
+                ? [.privateKeyUsage, .biometryCurrentSet]
+                : [.privateKeyUsage]
+            guard let built = SecAccessControlCreateWithFlags(
+                kCFAllocatorDefault,
+                kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+                flags,
+                &accessError
+            ) else { throw Failure.keyGeneration(Self.message(accessError)) }
+            access = built
         }
 
         let attributes: [String: Any] = [

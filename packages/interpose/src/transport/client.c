@@ -117,6 +117,17 @@ se_status se_client_generate(se_response *out) {
                     out);
 }
 
+se_status se_client_generate_ac(int biometry, uint64_t flags, const uint8_t *protection,
+                                size_t protection_len, se_response *out) {
+  uint8_t token[32];
+  if (read_token(token) != 0) return SE_ERR_TRUNCATED;
+  uint8_t payload[128];
+  return do_request(payload,
+                    se_encode_generate_ac(token, sizeof(token), biometry, flags, protection,
+                                          protection_len, payload, sizeof(payload)),
+                    out);
+}
+
 se_status se_client_sign(const uint8_t *handle, size_t handle_len, const uint8_t *digest,
                          size_t digest_len, se_response *out) {
   uint8_t token[32];
