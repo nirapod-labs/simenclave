@@ -2,15 +2,15 @@
 
 SimEnclave gives the iOS Simulator a real Secure Enclave. It injects a `SecKey` interposer that catches Secure Enclave calls in a simulated app and routes them to your Mac's actual SEP over an authenticated loopback channel. The app signs with real hardware P-256. No mock, no software key, and nothing for the app to import.
 
-This file is the plan. The locked design lives in the `nirapod-arch` repo: FOUNDATION-ADR-001 for the decision, and the SimEnclave architecture doc for the mechanism, protocol, and security model. Code follows the design.
+This file is the plan. The mechanism, protocol, and security model are settled, and code follows the design.
 
-Dates are targets from the architecture's build plan, not promises. v1.0 lands end of July 2026 if nothing slips. One thing up front: the release gate is M4, not M5. Parity and the fence have to be green before anything ships, even if the packaging and docs aren't done. Polish doesn't go out ahead of the safety proof.
+Dates are targets, not promises. v1.0 lands end of July 2026 if nothing slips. One thing up front: the release gate is M4, not M5. Parity and the fence have to be green before anything ships, even if the packaging and docs aren't done. Polish doesn't go out ahead of the safety proof.
 
 ## What 1.0 actually is
 
-A notarized macOS helper you install with `brew`, plus an injected interposer, that lets any iOS app whose signer uses the `SecKey` C API get real Mac-SEP P-256 signatures in the Simulator. The signatures are accepted on-chain exactly like a device's. The whole thing drives from a JSON CLI, so a person or an agent can run it headless. And it can't ship to production, by construction.
+A notarized macOS helper you install with `brew`, plus an injected interposer, that lets any iOS app whose signer uses the `SecKey` C API get real Mac-SEP P-256 signatures in the Simulator. The signatures verify exactly like a device's, to any verifier. The whole thing drives from a JSON CLI, so a person or an agent can run it headless. And it can't ship to production, by construction.
 
-Two tests decide whether we're done. Parity: a signature made in the simulator through SimEnclave passes the TON `P256_CHKSIGNU` low-s check, byte-for-byte the same acceptance as a device. The fence: a release build can't load the interposer at all. Both green, and 1.0 is real.
+Two tests decide whether we're done. Parity: a signature made in the simulator through SimEnclave verifies and is accepted by any P-256 verifier exactly as a device's signature is, and the `SecKey` API behaves identically. The fence: a release build can't load the interposer at all. Both green, and 1.0 is real.
 
 ## Milestones
 
@@ -20,7 +20,7 @@ Status: in progress. Target: by 2026-06-11.
 
 Stand up the repo so every later milestone is a PR on green CI. Nothing here touches keys or signing. It's all scaffolding.
 
-- [ ] Create the `simenclave` repo under the Nirapod org, Apache-2.0, `main` protected
+- [ ] Create the repo, Apache-2.0, `main` protected
 - [ ] pnpm workspace and turbo; lefthook and commitlint; biome; swiftlint and swiftformat; clang-format and clang-tidy
 - [ ] CI skeleton: a portable lane (any runner), a hardware lane (self-hosted Mac with a real SE), a fence check, a release workflow
 - [ ] PR template, CODEOWNERS, CONTRIBUTING, and a SECURITY.md that leads with "dev-only, never ships"
@@ -41,7 +41,7 @@ Before any polish, show the one thing that matters works: a hooked SecKey call i
 
 Done when a hooked `SecKeyCreateSignature` in the simulator returns a Mac-SEP signature that verifies. That's the whole bar, nothing else.
 
-This one's blocked on a question only the operator can answer: does the wallet's signer call the `SecKey` C API, or CryptoKit's `SecureEnclave.P256`? The C API hooks cleanly. CryptoKit is best-effort, so if that's what we use, M0 grows a second path to test.
+SimEnclave targets the `SecKey` C API, which hooks cleanly, and the M0 demo uses it directly. Apps that use CryptoKit's `SecureEnclave.P256` are best-effort, since CryptoKit bottoms out in the same `SecKey` path.
 
 ### M1: the helper, for real
 
@@ -67,7 +67,7 @@ The heart of the tool, and the most code.
 - [ ] Hooks for `SecItemAdd`, `SecItemCopyMatching`, `SecItemDelete`, so keys persist by tag
 - [ ] Passthrough: only Secure Enclave ops get redirected, everything else goes straight to the saved original
 - [ ] The shadow-ref registry, mapping each `SecKeyRef` to its host handle and cached public key
-- [ ] The transport client: token auth, low-s normalization, message-versus-digest handling
+- [ ] The transport client: token auth and message-versus-digest handling
 - [ ] Scheme injection of `DYLD_INSERT_LIBRARIES`, via `simenclavectl init` and `scripts/set-scheme-env.sh`
 
 Done when the passthrough invariant holds (a non-SE keychain call is byte-identical with and without the interposer), a tag round-trips through `SecItem`, and CryptoKit calls get caught wherever they bottom out in `SecKey`.
@@ -89,7 +89,7 @@ Status: not started. Target: 2026-07-17 to 07-23. This is the release gate.
 
 Nothing ships until this is green.
 
-- [ ] Parity test: the same digest signed on a device and through the interposed simulator, both low-s, both accepted by `P256_CHKSIGNU`
+- [ ] Parity test: the same digest signed on a device and through the interposed simulator both verify under the same P-256 verifier, and the `SecKey` API behaves identically across them
 - [ ] Fence test: a release build sets no env var and bundles no dylib, and with the var unset the simulator shows the stock failing-SE behavior, which proves the app isn't coupled to the tool
 - [ ] Hook unit tests: the backend installs the hooks, and the passthrough invariant holds
 - [ ] A self-hosted bare-metal Apple Silicon runner for the hardware CI lane (hosted runners are VMs with no SEP, so they can't do this)
@@ -129,10 +129,9 @@ Worth doing once the core is solid, roughly in order of how much they'd help:
 
 ## Decisions still open
 
-- `SecKey` C API or CryptoKit in the wallet's signer. This blocks M0's shape, and it's the operator's call.
 - Whether token-only channel auth is enough, or we add peer verification later. Fine to defer until the dev threat model actually tightens.
 - One repo, or a separate Homebrew tap for distribution.
 
 ## How we run it
 
-Everything is a PR. Each checkbox should be small enough to review in one sitting, and the milestones map to GitHub milestones and labels. The operator approves, nothing self-merges. v1.0 is gated on M4, not M5, so packaging that's ready early still waits if parity or the fence isn't green.
+Everything is a PR. Each checkbox should be small enough to review in one sitting, and the milestones map to GitHub milestones and labels. A maintainer approves; nothing self-merges. v1.0 is gated on M4, not M5, so packaging that's ready early still waits if parity or the fence isn't green.

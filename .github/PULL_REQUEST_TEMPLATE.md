@@ -4,7 +4,7 @@
 
 ## Why
 
-<!-- the reason it's needed; link the roadmap milestone or the design if relevant -->
+<!-- the reason it's needed; link the roadmap milestone if relevant -->
 
 ## How
 
@@ -18,5 +18,5 @@
 
 - [ ] Scoped to one thing, small enough to review in a sitting
 - [ ] Conventional commits, CI green
-- [ ] If it touches the mechanism, protocol, or security model, the design in `nirapod-arch` was updated first
+- [ ] If it changes the mechanism, protocol, or security model, the design was updated first
 - [ ] Nothing here lets the interposer reach a production build
