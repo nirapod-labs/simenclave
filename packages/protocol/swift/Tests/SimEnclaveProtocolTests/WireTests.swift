@@ -65,6 +65,40 @@ final class WireTests: XCTestCase {
         XCTAssertEqual(try Wire.decodeResponse(Wire.encode(response)), response)
     }
 
+    func testFindByTagRequestRoundTrips() throws {
+        let token = Data(repeating: 0xAB, count: 32)
+        let appTag = Data("app.example.key".utf8)
+        let udid = "11111111-2222-3333-4444-555555555555"
+        let request = Request.findByTag(appTag: appTag, udid: udid)
+        let payload = Wire.encode(request, token: token)
+        // map(4) { 0: 6, 7: token, 15: udid, 16: appTag }, keys ascending.
+        XCTAssertEqual(payload.prefix(3), Data([0xA4, 0x00, 0x06]))
+        XCTAssertEqual(try Wire.decodeRequest(payload), request)
+        XCTAssertEqual(try Wire.token(in: payload), token)
+    }
+
+    func testFoundResponseRoundTrips() throws {
+        let handle = Data(repeating: 0xCD, count: 16)
+        let publicKey = Data([0x04] + (0 ..< 64).map { UInt8($0) })
+        let response = Response.found(handle: handle, publicKey: publicKey)
+        // A found response echoes op 6, so it is distinct from a generated response.
+        XCTAssertEqual(Wire.encode(response).prefix(3), Data([0xA4, 0x00, 0x06]))
+        XCTAssertEqual(try Wire.decodeResponse(Wire.encode(response)), response)
+    }
+
+    func testFailureCarriesErrorDomain() throws {
+        // The OSStatus domain is the default and omits key 13: a 4-entry map, the
+        // same bytes as before M3.
+        let osStatus = Response.failure(code: -25293, message: "auth")
+        XCTAssertEqual(Wire.encode(osStatus).first, 0xA4)
+        XCTAssertEqual(try Wire.decodeResponse(Wire.encode(osStatus)), osStatus)
+        // A LocalAuthentication-domain failure adds key 13: a 5-entry map that round-trips.
+        let laError = Response.failure(code: -2, message: "cancelled", domain: Wire.domainLAError)
+        XCTAssertEqual(Wire.encode(laError).first, 0xA5)
+        XCTAssertEqual(try Wire.decodeResponse(Wire.encode(laError)), laError)
+        XCTAssertNotEqual(osStatus, laError)
+    }
+
     func testUnknownOpcodeRejected() {
         // A map { 0: 9 } with op = 9.
         XCTAssertThrowsError(try Wire.decodeRequest(Data([0xA1, 0x00, 0x09]))) { error in

@@ -57,6 +57,10 @@ public struct RequestRouter: Sendable {
             case let .delete(handle):
                 try service.delete(handle: handle)
                 return .deleted
+            case .findByTag:
+                // The durable keychain lookup is M3 slice 5; until the helper keeps a
+                // persistent store, a find by tag always misses.
+                return .failure(code: OSStatusCode.itemNotFound, message: "no persisted key")
             }
         } catch SecureEnclaveService.Failure.unknownHandle {
             return .failure(code: OSStatusCode.itemNotFound, message: "unknown handle")

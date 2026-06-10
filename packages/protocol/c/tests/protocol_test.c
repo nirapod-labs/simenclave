@@ -98,6 +98,31 @@ int main(void) {
             resp.error_code == -25293,
         "decode error with osstatus");
 
+  // FIND_BY_TAG { 0:6, 7:token(32), 15:udid("AB"), 16:appTag(2) } in canonical form.
+  uint8_t app_tag[2] = {0x01, 0x02};
+  n = se_encode_find_by_tag(token, sizeof(token), (const uint8_t *)"AB", 2, app_tag, 2, buf,
+                            sizeof(buf));
+  uint8_t find_prefix[] = {0xA4, 0x00, 0x06, 0x07, 0x58, 0x20};
+  CHECK(n == 46 && memcmp(buf, find_prefix, sizeof(find_prefix)) == 0 &&
+            memcmp(buf + 6, token, 32) == 0 && buf[38] == 0x0F && buf[39] == 0x62 &&
+            buf[40] == 'A' && buf[41] == 'B' && buf[42] == 0x10 && buf[43] == 0x42 &&
+            buf[44] == 0x01 && buf[45] == 0x02,
+        "find_by_tag bytes");
+
+  // Decode a FIND_BY_TAG-ok (found) response { 0:6, 1:0, 2:handle(4), 3:pubkey(5) }.
+  uint8_t found_resp[] = {0xA4, 0x00, 0x06, 0x01, 0x00, 0x02, 0x44, 1, 2,
+                          3,    4,    0x03, 0x45, 9,    8,    7,    6, 5};
+  CHECK(se_decode_response(found_resp, sizeof(found_resp), &resp) == SE_OK, "decode found rc");
+  CHECK(resp.kind == SE_RESP_FOUND && resp.handle_len == 4 && resp.public_key_len == 5,
+        "found fields");
+
+  // An error response carrying the error domain in key 13 decodes both code and domain.
+  uint8_t err_dom[] = {0xA5, 0x00, 0x02, 0x01, 0x01, 0x06, 0x62, 'n',
+                       'o',  0x0A, 0x39, 0x62, 0xCC, 0x0D, 0x01};
+  CHECK(se_decode_response(err_dom, sizeof(err_dom), &resp) == SE_OK &&
+            resp.kind == SE_RESP_ERROR && resp.error_code == -25293 && resp.error_domain == 1,
+        "decode error with domain");
+
   // Framing.
   uint8_t framed[8];
   uint8_t pay[4] = {0xDE, 0xAD, 0xBE, 0xEF};

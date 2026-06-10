@@ -50,7 +50,7 @@ final class LoopbackRoundTripTests: XCTestCase {
         defer { listener.stop() }
 
         let client = LoopbackClient(port: listener.port)
-        guard case let .failure(code, _) = try client.send(.generate(keyClass: .silent), token: CapabilityToken()) else {
+        guard case let .failure(code, _, _) = try client.send(.generate(keyClass: .silent), token: CapabilityToken()) else {
             return XCTFail("a wrong token must come back as a failure")
         }
         XCTAssertEqual(code, -25293) // errSecAuthFailed
@@ -95,7 +95,7 @@ final class LoopbackRoundTripTests: XCTestCase {
             return XCTFail("expected a deleted response")
         }
         // After delete the handle is gone: errSecItemNotFound.
-        guard case let .failure(code, _) = try client.send(.getPublicKey(handle: handle), token: token) else {
+        guard case let .failure(code, _, _) = try client.send(.getPublicKey(handle: handle), token: token) else {
             return XCTFail("a deleted handle must fail")
         }
         XCTAssertEqual(code, -25300) // errSecItemNotFound
@@ -117,7 +117,7 @@ final class LoopbackRoundTripTests: XCTestCase {
             // The prompt at sign time and the error parity are M3.
             XCTAssertEqual(x963.count, 65)
             XCTAssertEqual(x963.first, 0x04)
-        case let .failure(_, message):
+        case let .failure(_, message, _):
             throw XCTSkip("biometry key generation not available here: \(message)")
         default:
             return XCTFail("unexpected response to a biometry generate")
