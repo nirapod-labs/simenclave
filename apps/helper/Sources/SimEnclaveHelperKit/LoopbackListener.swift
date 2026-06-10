@@ -20,6 +20,12 @@ import Glibc
 /// stack but virtualizes its filesystem, so a host socket file is not reachable
 /// from a simulated app.
 public final class LoopbackListener: @unchecked Sendable {
+    /// Idle deadline on an accepted connection's reads and writes, so a peer that
+    /// connects and stalls cannot park a serve thread forever. Generous enough to
+    /// outlast a human at a biometric prompt on another connection; reads on this
+    /// connection have no human in the loop.
+    private static let connectionIdleTimeout = timeval(tv_sec: 30, tv_usec: 0)
+
     private let router: RequestRouter
     private let lifecycleLock = NSLock()
     private var listenFD: Int32 = -1
@@ -114,10 +120,8 @@ public final class LoopbackListener: @unchecked Sendable {
             // A receive and send deadline on every accepted connection, so a peer that
             // connects and stalls cannot park a serve thread forever: a stalled-client
             // flood would otherwise exhaust threads (M4 security review). A timed-out
-            // recv surfaces as a SocketError and serve drops the connection. 30 seconds
-            // leaves room for a human at a biometric prompt on another request; reads on
-            // this connection have no human in the loop.
-            var deadline = timeval(tv_sec: 30, tv_usec: 0)
+            // recv surfaces as a SocketError and serve drops the connection.
+            var deadline = Self.connectionIdleTimeout
             setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &deadline, socklen_t(MemoryLayout<timeval>.size))
             setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &deadline, socklen_t(MemoryLayout<timeval>.size))
             // Serve each connection on its own thread, so a biometry sign that parks on a

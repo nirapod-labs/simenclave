@@ -41,12 +41,8 @@ void se_registry_add(SecKeyRef shadow, const uint8_t *handle, size_t handle_len,
                      SecKeyRef host_public, CFDataRef tag) {
   if (handle_len > sizeof(((shadow_entry *)0)->handle)) return;
   pthread_mutex_lock(&g_lock);
-  if (g_count >= SE_MAX_SHADOWS) {
-    // Fail-closed-safe but confusing: an unregistered shadow's later sign misses
-    // the registry and the public carrier refuses. Say why, once per key.
-    fprintf(stderr, "[simenclave] shadow registry full (%d); key unusable\n", SE_MAX_SHADOWS);
-  }
-  if (g_count < SE_MAX_SHADOWS) {
+  int full = g_count >= SE_MAX_SHADOWS;
+  if (!full) {
     shadow_entry *e = &g_entries[g_count++];
     e->shadow = shadow;
     if (shadow) CFRetain(shadow);
@@ -58,6 +54,12 @@ void se_registry_add(SecKeyRef shadow, const uint8_t *handle, size_t handle_len,
     if (tag) CFRetain(tag);
   }
   pthread_mutex_unlock(&g_lock);
+  // Diagnose a full table after releasing the lock, so stderr I/O never serializes
+  // other registrations. Fail-closed-safe but confusing: an unregistered shadow's
+  // later sign misses the registry and the public carrier refuses.
+  if (full) {
+    fprintf(stderr, "[simenclave] shadow registry full (%d); key unusable\n", SE_MAX_SHADOWS);
+  }
 }
 
 int se_registry_lookup(SecKeyRef key, uint8_t *handle, size_t cap, size_t *handle_len,
