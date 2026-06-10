@@ -1,3 +1,19 @@
+/**
+ * @file client.c
+ * @brief Loopback client implementation: connect, frame, send, read, decode.
+ *
+ * @details
+ *
+ * @see client.h for the API documentation.
+ *
+
+ * @author SimEnclave Contributors
+ * @date 2026
+ *
+ * @copyright
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ */
 #include "client.h"
 
 #include <arpa/inet.h>
@@ -113,10 +129,9 @@ se_status se_client_generate(const uint8_t *app_id, size_t app_id_len, se_respon
   uint8_t token[32];
   if (read_token(token) != 0) return SE_ERR_TRUNCATED;
   uint8_t payload[320];
-  return do_request(payload,
-                    se_encode_generate(token, sizeof(token), app_id, app_id_len, payload,
-                                       sizeof(payload)),
-                    out);
+  return do_request(
+      payload,
+      se_encode_generate(token, sizeof(token), app_id, app_id_len, payload, sizeof(payload)), out);
 }
 
 se_status se_client_generate_ac(int biometry, uint64_t flags, const uint8_t *protection,

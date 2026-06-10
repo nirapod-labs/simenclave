@@ -1,6 +1,20 @@
-// dyld runs this constructor when the dylib loads, before the app's main, so the
-// SecKey hooks are in place before any signer call. Loaded only via the debug
-// scheme's DYLD_INSERT_LIBRARIES; never bundled in a release build.
+/**
+ * @file entry.c
+ * @brief The dylib constructor: installs the hooks at load, inert without configuration.
+ *
+ * @details
+ * dyld runs the constructor when the dylib loads, before the app's main, so
+ * the SecKey hooks are in place before any signer call. Loaded only via the
+ * debug scheme's DYLD_INSERT_LIBRARIES; never bundled in a release build.
+ *
+
+ * @author SimEnclave Contributors
+ * @date 2026
+ *
+ * @copyright
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ */
 #include "../include/simenclave_interpose.h"
 
 #include <stdio.h>

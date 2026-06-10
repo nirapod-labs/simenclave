@@ -1,4 +1,19 @@
-// The 4-byte big-endian length prefix shared by both ends (see SPEC.md).
+/**
+ * @file se_framing.c
+ * @brief The 4-byte big-endian length prefix shared by both ends.
+ *
+ * @details
+ *
+ * @see se_protocol.h for the API documentation, and SPEC.md for the frame format.
+ *
+
+ * @author SimEnclave Contributors
+ * @date 2026
+ *
+ * @copyright
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ */
 #include "se_protocol.h"
 
 #include <string.h>

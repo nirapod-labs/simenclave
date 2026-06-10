@@ -8,6 +8,7 @@ brew "cmake"        # the native C build system (the interposer and Dobby)
 brew "llvm"         # clang-format, clang-tidy, and clangd for the C side
 brew "swiftlint"    # Swift linting, reads .swiftlint.yml
 brew "swiftformat"  # Swift formatting, reads .swiftformat
+brew "doxygen"      # the C API documentation gate (make docs, reads Doxyfile)
 
 # JavaScript workspace
 brew "node"

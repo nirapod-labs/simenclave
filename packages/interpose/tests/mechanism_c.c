@@ -1,9 +1,22 @@
-// Mechanism C. The interposer's hooks, installed in a host process, route a
-// standard SecKey key-generate, public-key, and sign to the helper, and the
-// returned signature verifies under the public key the hooked path handed back.
-// The stats prove the hooks fired, so the verifying signature came from the
-// helper's SEP and not from a passthrough. This is the whole bridge minus the
-// in-simulator injection.
+/**
+ * @file mechanism_c.c
+ * @brief Mechanism C: the hooks, installed in a host process, route to the helper.
+ *
+ * @details
+ * A standard SecKey key-generate, public-key, and sign route to the helper,
+ * and the returned signature verifies under the public key the hooked path
+ * handed back. The stats prove the hooks fired, so the verifying signature
+ * came from the helper's SEP and not from a passthrough. This is the whole
+ * bridge minus the in-simulator injection.
+ *
+
+ * @author SimEnclave Contributors
+ * @date 2026
+ *
+ * @copyright
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ */
 #include <CommonCrypto/CommonCrypto.h>
 #include <Security/Security.h>
 #include <stdio.h>
@@ -179,8 +192,9 @@ int main(void) {
                            &kCFTypeDictionaryValueCallBacks);
     const void *n_keys[] = {kSecPrivateKeyAttrs};
     const void *n_values[] = {n_priv};
-    CFDictionaryRef n_params = CFDictionaryCreate(
-        NULL, n_keys, n_values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFDictionaryRef n_params =
+        CFDictionaryCreate(NULL, n_keys, n_values, 1, &kCFTypeDictionaryKeyCallBacks,
+                           &kCFTypeDictionaryValueCallBacks);
     SecKeyRef n_key = SecKeyCreateRandomKey(n_params, NULL);
     printf("nested-attrs create: %d\n", n_key != NULL);
     if (!n_key) fails++;

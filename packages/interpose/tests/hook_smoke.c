@@ -1,6 +1,20 @@
-// Dobby smoke test. Part A hooks a local function (proves the inline-hook
-// mechanism on this toolchain). Part B tries the real SecKeyCreateSignature in
-// the shared cache, which the host protects and the simulator does not.
+/**
+ * @file hook_smoke.c
+ * @brief Dobby smoke test: a local hook, then the real SecKeyCreateSignature.
+ *
+ * @details
+ * Part A hooks a local function (proves the inline-hook mechanism on this
+ * toolchain). Part B tries the real SecKeyCreateSignature in the shared
+ * cache, which the host protects and the simulator does not.
+ *
+
+ * @author SimEnclave Contributors
+ * @date 2026
+ *
+ * @copyright
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ */
 #include <Security/Security.h>
 #include <stdio.h>
 

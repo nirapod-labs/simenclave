@@ -16,6 +16,7 @@ DerivedData/
 # CMake build trees, fetched dependencies, and the generated compile database
 build/
 build-sim/
+build-docs/
 _deps/
 compile_commands.json
 
