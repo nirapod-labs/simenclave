@@ -23,7 +23,7 @@ final class LoopbackRoundTripTests: XCTestCase {
 
         let client = LoopbackClient(port: listener.port)
 
-        guard case let .generated(handle, x963) = try client.send(.generate, token: token) else {
+        guard case let .generated(handle, x963) = try client.send(.generate(keyClass: .silent), token: token) else {
             return XCTFail("expected a generated response")
         }
         XCTAssertEqual(x963.count, 65)
@@ -50,7 +50,7 @@ final class LoopbackRoundTripTests: XCTestCase {
         defer { listener.stop() }
 
         let client = LoopbackClient(port: listener.port)
-        guard case let .failure(code, _) = try client.send(.generate, token: CapabilityToken()) else {
+        guard case let .failure(code, _) = try client.send(.generate(keyClass: .silent), token: CapabilityToken()) else {
             return XCTFail("a wrong token must come back as a failure")
         }
         XCTAssertEqual(code, -25293) // errSecAuthFailed
@@ -83,7 +83,7 @@ final class LoopbackRoundTripTests: XCTestCase {
         defer { listener.stop() }
         let client = LoopbackClient(port: listener.port)
 
-        guard case let .generated(handle, x963) = try client.send(.generate, token: token) else {
+        guard case let .generated(handle, x963) = try client.send(.generate(keyClass: .silent), token: token) else {
             return XCTFail("expected a generated response")
         }
         guard case let .publicKey(fetched) = try client.send(.getPublicKey(handle: handle), token: token) else {
@@ -99,6 +99,29 @@ final class LoopbackRoundTripTests: XCTestCase {
             return XCTFail("a deleted handle must fail")
         }
         XCTAssertEqual(code, -25300) // errSecItemNotFound
+    }
+
+    func testBiometryKeyGeneration() throws {
+        let service = SecureEnclaveService()
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+
+        let token = CapabilityToken()
+        let listener = LoopbackListener(router: RequestRouter(service: service, gate: AuthGate(session: token)))
+        try listener.start()
+        defer { listener.stop() }
+        let client = LoopbackClient(port: listener.port)
+
+        switch try client.send(.generate(keyClass: .biometry), token: token) {
+        case let .generated(_, x963):
+            // A biometry key generated: its public key is an ordinary P-256 point.
+            // The prompt at sign time and the error parity are M3.
+            XCTAssertEqual(x963.count, 65)
+            XCTAssertEqual(x963.first, 0x04)
+        case let .failure(_, message):
+            throw XCTSkip("biometry key generation not available here: \(message)")
+        default:
+            return XCTFail("unexpected response to a biometry generate")
+        }
     }
 
     private func verifies(digest: Data, signature: Data, x963: Data) -> Bool {

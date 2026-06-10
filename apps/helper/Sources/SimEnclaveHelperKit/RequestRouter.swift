@@ -42,8 +42,8 @@ public struct RequestRouter: Sendable {
     func handle(_ request: Request) -> Response {
         do {
             switch request {
-            case .generate:
-                let (handle, publicKey) = try service.generate()
+            case let .generate(keyClass):
+                let (handle, publicKey) = try service.generate(requiresBiometry: keyClass == .biometry)
                 return .generated(handle: handle, publicKey: publicKey)
             case let .getPublicKey(handle):
                 return .publicKey(try service.publicKey(for: handle))
