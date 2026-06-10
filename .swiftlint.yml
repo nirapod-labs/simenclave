@@ -1,0 +1,15 @@
+# Activated when Swift sources land (M1 onward).
+included:
+  - apps
+  - packages
+  - tools
+excluded:
+  - "**/.build"
+  - "**/DerivedData"
+opt_in_rules:
+  - empty_count
+  - force_unwrapping
+  - explicit_init
+line_length:
+  warning: 120
+  error: 160
