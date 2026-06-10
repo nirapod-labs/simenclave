@@ -33,6 +33,12 @@ check, run by `simenclavectl doctor` or at first contact, that confirms the
 helper speaks the interposer's version before real work starts. It is an ordinary
 authenticated operation that happens to negotiate the version.
 
+The helper serves on a single accept loop, so each framed read carries a timeout.
+A peer that opens a socket and then stalls cannot pin the loop and starve the
+other connections. A same-user process flooding the developer's own helper is an
+annoyance rather than a boundary, and the kill switch ends it, but the per-read
+timeout is one line that keeps a single stuck simulator from blocking the rest.
+
 ## The capability token
 
 The token is what makes the channel the developer's own. Only the developer's
@@ -54,6 +60,20 @@ developer, under a per-user path (`~/Library/Application Support/SimEnclave/`).
 It is held as 64 lowercase hex characters so it survives an environment variable.
 `0600` is the boundary: another user on the Mac cannot read it.
 
+The way that file is created is load-bearing, so it is pinned here rather than
+left to the implementer. The directory is created `0700`, and if it already
+exists the helper checks that the real uid owns it, that it is not a symlink, and
+that it is not group or world writable before it writes anything inside. The file
+is opened `O_CREAT | O_EXCL | O_NOFOLLOW`, and its mode is set with `fchmod` on
+the descriptor, not a `chmod` after the write, so there is no window at a wider
+mode and no dependence on the umask. An exclusive-create failure is fatal: the
+helper never unlinks or truncates a path that is already there, because a file or
+symlink sitting at that path is either a stale session to refuse loudly or
+something planted. The threat this closes is not another user reading the token,
+which is out of scope, but a same-user lower-trust step, a malicious postinstall
+in the developer's own toolchain or a CI job, winning the create race or planting
+a symlink to redirect the write.
+
 **Inject.** `simenclavectl init` reads the token and the helper's loopback port
 and sets `SIMENCLAVE_TOKEN` and `SIMENCLAVE_PORT` into the debug Simulator
 scheme's environment. This is the same channel that already loads the interposer
@@ -61,23 +81,46 @@ through `DYLD_INSERT_LIBRARIES`, so the token reaches the guest exactly where th
 tool already reaches it, and nowhere a release build does. The interposer decodes
 the hex to 32 bytes and puts them in key `7` on every request.
 
-**Verify.** The helper keeps the session token in memory. On each request the
-`AuthGate` runs first, before it parses the operation:
+Because it rides an environment variable, the token is inherited by every
+descendant of the simulated app, not the interposer alone, and environments get
+dumped where a file does not: CI prints them on failure, crash reporters capture
+them, dyld debug flags echo the launch environment. That is all same-user and
+within scope to read, but a token sitting in a CI log outlives the session and
+travels with the log, so the helper and `simenclavectl` never log or echo it, and
+the answer to a suspected leak is a helper restart. The per-session lifetime is
+what makes that cheap: a leaked token is already dead at the next mint.
+
+**Verify.** The helper holds the session token in memory as 32 raw bytes; the
+hex is only the transport form, on disk and in the environment. On every request,
+and inside the per-frame serve loop rather than once per connection, the
+`AuthGate` runs first, before it interprets the operation:
 
 ```
-on request frame:
-  if token field absent or its length != 32      -> reject
-  if not constant_time_equal(token, session)     -> reject (errSecAuthFailed)
-  otherwise                                       -> dispatch the operation
+on each request frame:
+  decode the CBOR map structure
+  require exactly one key 7, a bstr of length 32     else reject (errSecAuthFailed)
+  if not fixed_time_equal_32(key7_bytes, session)    else reject (errSecAuthFailed)
+  only now interpret key 0 and dispatch
 ```
 
-The compare is constant time. `memcmp` returns early on the first differing byte,
-which leaks where two tokens diverge through timing; a fixed-time equality does
-not. The attacker here is same-user, so a timing oracle is not the live threat,
-but a constant-time compare is one cheap line that removes the whole class, and
-it is the kind of thing an audit expects to find. The gate runs before the
-operation is parsed, so a caller without the token learns nothing about the
-operation surface, not even that its bytes were well formed.
+The length gate comes first and rejects fast, which is fine because a token's
+length is not secret. The equality then runs over a fixed 32 bytes with a
+primitive that does not branch on the bytes, one that ORs the differences across
+all 32, not `memcmp`, not `Data ==`, and not a comparison of the hex strings.
+`memcmp` and `==` return early on the first differing byte, which leaks where two
+tokens diverge through timing, and the hex form is the wrong operand at twice the
+length. The attacker here is same-user, so a timing oracle is not the live
+threat, but the primitive is one cheap helper-side line that removes the class,
+and an audit expects to find it. The gate decodes only the map framing to reach
+key 7, and it interprets the operation in key 0 only after the token matches, so
+a caller without the token learns nothing about the operation surface.
+
+For that gate to be exact, the framing it decodes has to be unambiguous, so the
+decoder rejects a map with duplicate keys, rejects any integer or length that is
+not in shortest form, and rejects trailing bytes after the map. Without that, two
+encodings could disagree on which key 7 is the token, which is the one field the
+gate turns on. The wire rules are in [`SPEC.md`](../../packages/protocol/SPEC.md),
+and the helper depends on them here.
 
 **Lifetime.** A token lives for one helper session. Restarting the helper mints a
 new one, which is why a stale scheme has to re-run `init`. The menubar kill switch
@@ -102,20 +145,27 @@ it from the start and M3 adds behavior, not schema.
 
 ## The handle store
 
-A handle is an opaque byte string. The interposer treats it as nothing but a
-token for a key and never looks inside it. The helper maps each handle to the
-SEP key behind it, the key class, and the simulator that created it.
+A handle is an opaque byte string, the 16 random bytes the helper returns from
+`GENERATE`. The interposer treats it as nothing but a token for a key and never
+looks inside it. The helper maps each handle to the SEP key behind it and its key
+class.
 
-Keys are namespaced per simulator UDID. Two simulators running the same test
-fixture get separate keys, so one run does not see or clobber another's, and a
-test is reproducible. The UDID comes from the spawn environment that `simctl`
-sets, recorded with the handle when the key is made, and checked on `GET_PUBKEY`,
-`SIGN`, and `DELETE` so a handle only resolves inside the simulator that owns it.
+M1 keeps one flat handle namespace per helper session. Handles are unguessable
+and unique, so two simulators running the same fixture get different handles and
+do not collide, which is what makes a test run reproducible. That uniqueness is
+not a security boundary, though. Within a session the token is the boundary: a
+caller that holds the token can name any handle the helper has issued. That is
+the same-user surface the threat model already places out of scope, so M1 does
+not pretend a handle is walled off from a token holder.
 
-M1's store is the live handle map plus that per-UDID isolation. Durable
-persistence, a fixture key still present after the helper restarts, is M3, where
-it pairs with the biometry and parity work. Keeping the handle opaque is what lets
-the store's representation change between milestones without touching the wire.
+Per-simulator isolation and durable persistence across relaunches are both M3,
+with the biometry and parity work. When M3 adds isolation it has to carry a UDID,
+and a UDID a guest reports over loopback is guest-supplied, so it separates
+cooperating test runs, not an adversary that holds the token. Real isolation
+against a token holder means identifying the connecting peer, which is the same
+gap peer verification defers (see the threat model below); that circularity is
+why M1 does not claim it. Keeping the handle opaque is what lets the store grow
+this way without touching the wire.
 
 ## The error model
 
@@ -147,6 +197,13 @@ by, and the token already gates to the developer's own session. If the dev threa
 model ever tightens, peer checks layer on top of the token rather than replacing
 it.
 
+The menubar shows a per-app approval prompt, and it is a convenience, not an
+access-control boundary. The helper has no trustworthy way to identify the
+connecting app over a loopback socket, so the prompt can only key on something
+the guest reports, which a token holder can forge. The token is the boundary. The
+prompt is there so a developer sees what is asking and can say no, not because it
+stops anything the token already allows.
+
 None of this is the production story, because there is no production path. The
 fence in `SECURITY.md`, no env var and no bundled dylib in a release build, is
 orthogonal to all of the above and stays the release gate.
@@ -157,9 +214,9 @@ M1 is done when the helper generates, signs, reads, deletes, and authenticates
 over loopback, with unit tests green on a Mac that has a real Secure Enclave:
 
 - The full SE service: `GENERATE` for both key classes, `SIGN`, `GET_PUBKEY`, `DELETE`
-- The capability token and the `AuthGate` on every request
-- The handle store, namespaced per simulator UDID
-- The menubar with a status line, a kill switch, and per-app approval
+- The capability token and the `AuthGate` on every request, with a constant-time compare and a decoder that admits exactly one value per key
+- The handle store, one flat namespace per session (per-UDID isolation is M3)
+- The menubar: a status line, a kill switch, and a per-app approval prompt (a convenience, not an access boundary)
 - Wire protocol v1: `HELLO` negotiation, the token, and this `SPEC.md` plus the CDDL
 - The signed `.app` carrying `com.apple.application-identifier`, the only way to reach the Mac SE
 

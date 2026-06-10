@@ -28,13 +28,15 @@ length bytes. A reader refuses any frame whose length exceeds `MAX_FRAME`
 
 ## Authentication
 
-Every request carries the capability token in key `7`, a byte string. The helper
-mints one 32-byte token per session, the developer's session is the only one
-that can read it, and the interposer presents it on every call. The helper's
-`AuthGate` compares the presented token against the session token in constant
-time and rejects any request that does not match, before it does anything else,
-including before it parses the rest of the operation. A reply never contains the
-token.
+Every request carries the capability token in key `7`, a 32-byte byte string. The
+helper mints one token per session, the developer's session is the only one that
+can read it, and the interposer presents it on every call. The helper's
+`AuthGate` requires exactly one key `7` of that length, compares it against the
+session token in constant time, and rejects any request that does not match
+before it does anything else, including before it interprets the operation in key
+`0`. The decode rules in the Payload section, one value per key and shortest form
+and no trailing bytes, are what make the token field unambiguous. A reply never
+contains the token.
 
 `HELLO` is authenticated too. There is no unauthenticated operation, so an
 endpoint that cannot present the token cannot even probe the helper's version.
@@ -47,7 +49,11 @@ and the helper only needs to check it.
 The payload is a single CBOR map with unsigned-integer keys. Integer keys keep it
 compact, and emitting them in ascending order keeps the encoding canonical, which
 matters because two codecs, Swift in the helper and C in the interposer, must
-agree byte for byte. The keys:
+agree byte for byte. Canonical is a decode rule as much as an encode one: both
+codecs reject a map with duplicate keys, reject any integer or length not in
+shortest form, and reject trailing bytes after the map, so every message decodes
+to exactly one value per key. The `AuthGate` leans on that, because the token in
+key `7` has to be uniquely defined by the bytes before it is checked. The keys:
 
 | Key | Field       | Direction | Type                       |
 | --- | ----------- | --------- | -------------------------- |

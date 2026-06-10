@@ -49,8 +49,8 @@ Status: not started. Target: 2026-06-18 to 06-27.
 
 - [ ] Full SE service: `GENERATE` for both key classes (silent and biometry), `SIGN`, `GET_PUBKEY`, `DELETE`
 - [ ] Capability token, minted per session, written `0600` and injected into the scheme; `AuthGate` checks it on every call
-- [ ] Handle store, namespaced per simulator UDID so test keys stay isolated and reproducible
-- [ ] Menubar UI with a status line, a kill switch, and a per-app approval
+- [ ] Handle store, one flat namespace per session, handles unguessable so test runs stay reproducible (per-UDID isolation and durable persistence are M3)
+- [ ] Menubar UI with a status line, a kill switch, and a per-app approval prompt (a convenience, not an access boundary)
 - [ ] Wire protocol v1: CBOR with length framing, `HELLO` version negotiation, plus `SPEC.md` and a CDDL schema
 - [ ] Signed `.app` carrying the `com.apple.application-identifier` entitlement, the only way to touch the Mac SE
 

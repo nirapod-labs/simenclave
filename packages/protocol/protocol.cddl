@@ -2,10 +2,13 @@
 ;
 ; Every message is a CBOR map with unsigned-integer keys, carried inside a
 ; 4-byte big-endian length-prefixed frame. Integer keys keep the encoding
-; compact and canonical (keys ascending, shortest form). M0 carried GENERATE
-; and SIGN with no auth; M1 completes the version with a per-request capability
-; token, HELLO version negotiation, GET_PUBKEY, and DELETE. The framing is
-; unchanged and the M0 GENERATE and SIGN bytes are unchanged.
+; compact and canonical (keys ascending, shortest form). Decoders reject
+; duplicate keys, non-shortest-form integers and lengths, and trailing bytes,
+; so each message has exactly one value per key and the AuthGate's token in
+; key 7 is unambiguous. M0 carried GENERATE and SIGN with no auth; M1 completes
+; the version with a per-request capability token, HELLO version negotiation,
+; GET_PUBKEY, and DELETE. The framing and the M0 GENERATE and SIGN bytes are
+; unchanged.
 
 start = request / response
 
