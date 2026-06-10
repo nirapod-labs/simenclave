@@ -37,6 +37,10 @@ fail() {
 if [ "${1:-}" = "--bundle" ]; then
   BUNDLE="${2:-}"
   [ -d "$BUNDLE" ] || { echo "usage: fence-check.sh --bundle <path.app>" >&2; exit 2; }
+  # PlistBuddy is the LSEnvironment check. It is macOS-only; refuse rather than
+  # silently skip a fence assertion, which would read as "checked" when it was not.
+  # The release workflow that builds the .app runs on macOS, so this holds there.
+  [ -x /usr/libexec/PlistBuddy ] || { echo "FENCE FAIL: --bundle needs PlistBuddy (run on macOS)" >&2; exit 2; }
   HITS="$(find "$BUNDLE" -name "*${DYLIB_NAME}*" 2>/dev/null)"
   [ -z "$HITS" ] || fail "interposer dylib inside the bundle: $HITS"
   PLIST="$BUNDLE/Contents/Info.plist"

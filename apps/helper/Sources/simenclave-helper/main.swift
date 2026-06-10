@@ -53,6 +53,9 @@ do {
     try listener.start(port: requested)
 } catch {
     FileHandle.standardError.write(Data("simenclave-helper: failed to start: \(error)\n".utf8))
+    // The token file exists by here; remove it on this failure path explicitly,
+    // not only through the atexit backstop, so a start failure leaves nothing behind.
+    TokenFile.remove(fromDirectory: tokenDirectory)
     exit(1)
 }
 
