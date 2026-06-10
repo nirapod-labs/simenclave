@@ -45,30 +45,32 @@ SimEnclave targets the `SecKey` C API, which hooks cleanly, and the M0 demo uses
 
 ### M1: the helper, for real
 
-Status: not started. Target: 2026-06-18 to 06-27.
+Status: done (2026-06-10). Target was 2026-06-18 to 06-27. Design: `docs/design/m1-helper.md`.
 
-- [ ] Full SE service: `GENERATE` for both key classes (silent and biometry), `SIGN`, `GET_PUBKEY`, `DELETE`
-- [ ] Capability token, minted per session, written `0600` and injected into the scheme; `AuthGate` checks it on every call
-- [ ] Handle store, one flat namespace per session, handles unguessable so test runs stay reproducible (per-UDID isolation and durable persistence are M3)
-- [ ] Menubar UI with a status line, a kill switch, and a per-app approval prompt (a convenience, not an access boundary)
-- [ ] Wire protocol v1: CBOR with length framing, `HELLO` version negotiation, plus `SPEC.md` and a CDDL schema
+- [x] Full SE service: `GENERATE` for both key classes (silent and biometry), `SIGN`, `GET_PUBKEY`, `DELETE`
+- [x] Capability token, minted per session, written `0600`; `AuthGate` checks it on every call, constant-time, one value per key. Injection rides the mechanism scripts' `SIMCTL_CHILD_*` handoff today; the per-app `simenclavectl init` is M2 and M5
+- [x] Handle store, one flat namespace per session, handles unguessable so test runs stay reproducible (per-UDID isolation and durable persistence are M3)
+- [x] Menubar UI with a status line and a kill switch that clears the token. The per-app approval prompt moves to M2: it has to name the connecting app, and only the interposer can report that, so it cannot be built helper-side first
+- [x] Wire protocol v1: CBOR with length framing, plus `SPEC.md` and a CDDL schema. `HELLO` is specified on the wire; the helper dispatches it in M2, when the `doctor` handshake that calls it exists
 - [ ] A signed, notarized `.app` for distribution (deferred to M5). The Secure Enclave needs no entitlement, proved in M0 and the key-class work, so M1 ships the menubar above as an ad-hoc accessory app; `com.apple.application-identifier` is for keychain persistence (M3)
 
-Done when the helper generates, signs, persists, and authenticates over loopback, with unit tests green on a Mac that has a real Secure Enclave.
+Done: the helper generates, signs, reads, deletes, and authenticates over loopback, with the Swift and C suites green on a Mac that has a real Secure Enclave. Two listed items moved to M2 with cause, the approval prompt and `HELLO` dispatch, both noted above; the signed `.app` stays M5.
 
 ### M2: the interposer
 
-Status: not started. Target: 2026-06-28 to 07-09.
+Status: not started. Target: 2026-06-28 to 07-09. Design: `docs/design/m2-interposer.md`.
 
-The heart of the tool, and the most code.
+The heart of the tool, and the most code. M0 scaffolded the shape, the seam, the three `SecKey` hooks, a basic registry, and the token transport; M2 turns that spike into the real client.
 
-- [ ] A `HookBackend` seam (`install(symbol, replacement) -> original`) with Dobby inline hooking as the default, so no single library is load-bearing
-- [ ] Hooks for `SecKeyCreateRandomKey`, `SecKeyCreateSignature`, `SecKeyCopyPublicKey`
-- [ ] Hooks for `SecItemAdd`, `SecItemCopyMatching`, `SecItemDelete`, so keys persist by tag
-- [ ] Passthrough: only Secure Enclave ops get redirected, everything else goes straight to the saved original
-- [ ] The shadow-ref registry, mapping each `SecKeyRef` to its host handle and cached public key
-- [ ] The transport client: token auth and message-versus-digest handling
-- [ ] Scheme injection of `DYLD_INSERT_LIBRARIES`, via `simenclavectl init` and `scripts/set-scheme-env.sh`
+- [ ] The `HookBackend` seam (`resolve`/`install`, Dobby behind it) is in from M0; M2 keeps every hook naming the seam and no library directly
+- [ ] Hooks for `SecKeyCreateRandomKey`, `SecKeyCreateSignature`, `SecKeyCopyPublicKey` (in from M0), with the shadow hardened to a public-key-only carrier so a routing miss fails loud, never a silent software signature
+- [ ] Hooks for `SecItemAdd`, `SecItemCopyMatching`, `SecItemDelete`, so keys persist by tag (in-session; durable across relaunches is M3)
+- [ ] Passthrough: only Secure Enclave ops get redirected, every other call goes straight to the saved original, byte-identical
+- [ ] The shadow-ref registry retains its shadows so a freed ref's address cannot be reused and misrouted, maps each `SecKeyRef` to its host handle and cached public key, and carries the key class and the `SecItem` tag
+- [ ] The transport client (token auth and message-versus-digest are in from M0) grows `GET_PUBKEY` and `DELETE`, and the C codec catches up to the helper
+- [ ] `HELLO` dispatch in the helper and the `doctor` handshake that calls it (moved from M1)
+- [ ] Scheme injection of `DYLD_INSERT_LIBRARIES`, via `scripts/set-scheme-env.sh`; the `simenclavectl init` polish is M5
+- [ ] The menubar's per-app approval prompt, keyed on the app id the interposer now reports (moved from M1; a convenience, not an access boundary)
 
 Done when the passthrough invariant holds (a non-SE keychain call is byte-identical with and without the interposer), a tag round-trips through `SecItem`, and CryptoKit calls get caught wherever they bottom out in `SecKey`.
 
