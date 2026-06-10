@@ -19,6 +19,26 @@
       "target": "simenclave-helper",
       "configuration": "release",
       "preLaunchTask": "swift: Build Release simenclave-helper (apps/helper)"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:simenclave}/apps/helper",
+      "name": "Debug simenclave-menubar (apps/helper)",
+      "target": "simenclave-menubar",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug simenclave-menubar (apps/helper)"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:simenclave}/apps/helper",
+      "name": "Release simenclave-menubar (apps/helper)",
+      "target": "simenclave-menubar",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release simenclave-menubar (apps/helper)"
     }
   ]
 }
