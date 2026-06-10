@@ -33,16 +33,16 @@ int main(void) {
   CFDataRef digestData = CFDataCreate(NULL, digest, CC_SHA256_DIGEST_LENGTH);
 
   CFErrorRef signError = NULL;
-  CFDataRef signature = SecKeyCreateSignature(
-      key, kSecKeyAlgorithmECDSASignatureDigestX962SHA256, digestData, &signError);
+  CFDataRef signature = SecKeyCreateSignature(key, kSecKeyAlgorithmECDSASignatureDigestX962SHA256,
+                                              digestData, &signError);
   if (!signature) {
     printf("SIM: SecKeyCreateSignature failed\n");
     return 4;
   }
 
   CFErrorRef verifyError = NULL;
-  bool verified = SecKeyVerifySignature(
-      pub, kSecKeyAlgorithmECDSASignatureDigestX962SHA256, digestData, signature, &verifyError);
+  bool verified = SecKeyVerifySignature(pub, kSecKeyAlgorithmECDSASignatureDigestX962SHA256,
+                                        digestData, signature, &verifyError);
   printf("SIM VERIFY: %d\n", verified);
   return verified ? 0 : 5;
 }

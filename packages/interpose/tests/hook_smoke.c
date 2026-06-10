@@ -44,8 +44,8 @@ int main(void) {
       unsigned char zero[32] = {0};
       CFDataRef dg = CFDataCreate(NULL, zero, 32);
       CFErrorRef se = NULL;
-      CFDataRef sig = SecKeyCreateSignature(
-          priv, kSecKeyAlgorithmECDSASignatureDigestX962SHA256, dg, &se);
+      CFDataRef sig =
+          SecKeyCreateSignature(priv, kSecKeyAlgorithmECDSASignatureDigestX962SHA256, dg, &se);
       printf("B: produced=%d hook_fired=%d\n", sig != NULL, sign_hook_fired);
       if (!sign_hook_fired) fails++;
     } else {

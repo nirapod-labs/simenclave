@@ -42,22 +42,22 @@ int main(void) {
   CFDataRef digestData = CFDataCreate(NULL, digest, CC_SHA256_DIGEST_LENGTH);
 
   CFErrorRef signError = NULL;
-  CFDataRef signature = SecKeyCreateSignature(
-      key, kSecKeyAlgorithmECDSASignatureDigestX962SHA256, digestData, &signError);
+  CFDataRef signature = SecKeyCreateSignature(key, kSecKeyAlgorithmECDSASignatureDigestX962SHA256,
+                                              digestData, &signError);
   if (!signature) {
     printf("FAIL: SecKeyCreateSignature returned NULL (is the helper running?)\n");
     return 1;
   }
 
   CFErrorRef verifyError = NULL;
-  bool verified = SecKeyVerifySignature(
-      pub, kSecKeyAlgorithmECDSASignatureDigestX962SHA256, digestData, signature, &verifyError);
+  bool verified = SecKeyVerifySignature(pub, kSecKeyAlgorithmECDSASignatureDigestX962SHA256,
+                                        digestData, signature, &verifyError);
   printf("verify: %d\n", verified);
   if (!verified) fails++;
 
   simenclave_hook_stats stats = simenclave_get_hook_stats();
-  printf("stats: create=%d pubkey=%d sign=%d\n",
-         stats.create_random_key, stats.copy_public_key, stats.create_signature);
+  printf("stats: create=%d pubkey=%d sign=%d\n", stats.create_random_key, stats.copy_public_key,
+         stats.create_signature);
   if (stats.create_random_key < 1 || stats.copy_public_key < 1 || stats.create_signature < 1) {
     fails++;
   }

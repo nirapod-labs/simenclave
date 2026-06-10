@@ -7,9 +7,7 @@
 
 #include "dobby.h"
 
-static void *dobby_resolve(const char *symbol) {
-  return DobbySymbolResolver(NULL, symbol);
-}
+static void *dobby_resolve(const char *symbol) { return DobbySymbolResolver(NULL, symbol); }
 
 static int dobby_install(void *target, void *replacement, void **original) {
   return DobbyHook(target, replacement, original);

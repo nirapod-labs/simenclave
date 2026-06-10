@@ -61,17 +61,16 @@ static void w_bytes(writer *w, uint8_t major, const uint8_t *data, size_t len) {
 
 int se_encode_generate(uint8_t *out, size_t cap) {
   writer w = {out, cap, 0, 0};
-  w_head(&w, 5, 1);  // map(1)
+  w_head(&w, 5, 1); // map(1)
   w_head(&w, 0, K_OP);
   w_head(&w, 0, OP_GENERATE);
   return w.overflow ? -1 : (int)w.pos;
 }
 
-int se_encode_sign(const uint8_t *handle, size_t handle_len,
-                   const uint8_t *digest, size_t digest_len,
-                   uint8_t *out, size_t cap) {
+int se_encode_sign(const uint8_t *handle, size_t handle_len, const uint8_t *digest,
+                   size_t digest_len, uint8_t *out, size_t cap) {
   writer w = {out, cap, 0, 0};
-  w_head(&w, 5, 3);  // map(3)
+  w_head(&w, 5, 3); // map(3)
   w_head(&w, 0, K_OP);
   w_head(&w, 0, OP_SIGN);
   w_head(&w, 0, K_HANDLE);
@@ -136,7 +135,7 @@ static se_status r_map(reader *r, entry *entries, size_t max, size_t *count) {
     uint64_t kv;
     st = r_head(r, &km, &kv);
     if (st != SE_OK) return st;
-    if (km != 0) return SE_ERR_TYPE;  // keys are uints
+    if (km != 0) return SE_ERR_TYPE; // keys are uints
     uint8_t vm;
     uint64_t va;
     st = r_head(r, &vm, &va);
@@ -201,13 +200,16 @@ se_status se_decode_response(const uint8_t *payload, size_t len, se_response *ou
 
   if (op->uintval == OP_GENERATE) {
     out->kind = SE_RESP_GENERATED;
-    st = copy_span(find(entries, count, K_HANDLE), out->handle, sizeof(out->handle), &out->handle_len);
+    st = copy_span(find(entries, count, K_HANDLE), out->handle, sizeof(out->handle),
+                   &out->handle_len);
     if (st != SE_OK) return st;
-    return copy_span(find(entries, count, K_PUBKEY), out->public_key, sizeof(out->public_key), &out->public_key_len);
+    return copy_span(find(entries, count, K_PUBKEY), out->public_key, sizeof(out->public_key),
+                     &out->public_key_len);
   }
   if (op->uintval == OP_SIGN) {
     out->kind = SE_RESP_SIGNED;
-    return copy_span(find(entries, count, K_SIG), out->signature, sizeof(out->signature), &out->signature_len);
+    return copy_span(find(entries, count, K_SIG), out->signature, sizeof(out->signature),
+                     &out->signature_len);
   }
   return SE_ERR_OPCODE;
 }

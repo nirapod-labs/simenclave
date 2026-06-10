@@ -2,7 +2,22 @@
   "extends": ["@commitlint/config-conventional"],
   "rules": {
     "type-enum": [2, "always", ["feat", "fix", "docs", "refactor", "test", "build", "ci", "chore"]],
-    "scope-enum": [2, "always", ["helper", "interpose", "protocol", "host-core", "cli", "examples", "tests", "ci", "repo", "docs"]],
+    "scope-enum": [
+      2,
+      "always",
+      [
+        "helper",
+        "interpose",
+        "protocol",
+        "host-core",
+        "cli",
+        "examples",
+        "tests",
+        "ci",
+        "repo",
+        "docs"
+      ]
+    ],
     "subject-max-length": [2, "always", 50]
   }
 }

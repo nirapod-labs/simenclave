@@ -15,8 +15,8 @@ int se_frame(const uint8_t *payload, size_t len, uint8_t *out, size_t cap) {
 }
 
 long se_payload_length(const uint8_t prefix[4]) {
-  long len = ((long)prefix[0] << 24) | ((long)prefix[1] << 16) |
-             ((long)prefix[2] << 8) | (long)prefix[3];
+  long len =
+      ((long)prefix[0] << 24) | ((long)prefix[1] << 16) | ((long)prefix[2] << 8) | (long)prefix[3];
   if (len > SE_MAX_FRAME) return -1;
   return len;
 }

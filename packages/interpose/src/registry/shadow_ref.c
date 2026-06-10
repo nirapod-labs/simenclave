@@ -18,7 +18,8 @@ static shadow_entry g_entries[SE_MAX_SHADOWS];
 static size_t g_count = 0;
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 
-void se_registry_add(SecKeyRef shadow, const uint8_t *handle, size_t handle_len, SecKeyRef host_public) {
+void se_registry_add(SecKeyRef shadow, const uint8_t *handle, size_t handle_len,
+                     SecKeyRef host_public) {
   if (handle_len > sizeof(((shadow_entry *)0)->handle)) return;
   pthread_mutex_lock(&g_lock);
   if (g_count < SE_MAX_SHADOWS) {
@@ -32,7 +33,8 @@ void se_registry_add(SecKeyRef shadow, const uint8_t *handle, size_t handle_len,
   pthread_mutex_unlock(&g_lock);
 }
 
-int se_registry_lookup(SecKeyRef key, uint8_t *handle, size_t cap, size_t *handle_len, SecKeyRef *host_public) {
+int se_registry_lookup(SecKeyRef key, uint8_t *handle, size_t cap, size_t *handle_len,
+                       SecKeyRef *host_public) {
   int found = 0;
   pthread_mutex_lock(&g_lock);
   for (size_t i = 0; i < g_count; i++) {
