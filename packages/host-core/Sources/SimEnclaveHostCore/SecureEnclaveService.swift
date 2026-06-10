@@ -98,6 +98,14 @@ public final class SecureEnclaveService: @unchecked Sendable {
         return signature
     }
 
+    /// Remove the SEP key named by `handle`. The key is non-permanent, so
+    /// dropping the only reference frees it from the Secure Enclave.
+    public func delete(handle: Data) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard keys.removeValue(forKey: handle) != nil else { throw Failure.unknownHandle }
+    }
+
     private func exportPublicKey(of privateKey: SecKey) throws -> Data {
         guard let publicKey = SecKeyCopyPublicKey(privateKey) else {
             throw Failure.publicKeyExport("SecKeyCopyPublicKey returned nil")
