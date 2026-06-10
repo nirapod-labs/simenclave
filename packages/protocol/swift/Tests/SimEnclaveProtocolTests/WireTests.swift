@@ -22,6 +22,16 @@ final class WireTests: XCTestCase {
         XCTAssertEqual(try Wire.token(in: payload), token)
     }
 
+    func testGetPublicKeyAndDeleteRequestsRoundTrip() throws {
+        let handle = Data(repeating: 0x11, count: 16)
+        let token = Data(repeating: 0xAB, count: 32)
+        for request in [Request.getPublicKey(handle: handle), .delete(handle: handle)] {
+            let payload = Wire.encode(request, token: token)
+            XCTAssertEqual(try Wire.decodeRequest(payload), request)
+            XCTAssertEqual(try Wire.token(in: payload), token)
+        }
+    }
+
     func testGeneratedResponseRoundTrips() throws {
         let handle = Data(repeating: 0xAB, count: 16)
         let publicKey = Data([0x04] + (0 ..< 64).map { UInt8($0) })
@@ -32,6 +42,13 @@ final class WireTests: XCTestCase {
     func testSignedResponseRoundTrips() throws {
         let response = Response.signed(signature: Data(repeating: 0x30, count: 71))
         XCTAssertEqual(try Wire.decodeResponse(Wire.encode(response)), response)
+    }
+
+    func testPublicKeyAndDeletedResponsesRoundTrip() throws {
+        let publicKey = Data([0x04] + (0 ..< 64).map { UInt8($0) })
+        for response in [Response.publicKey(publicKey), .deleted] {
+            XCTAssertEqual(try Wire.decodeResponse(Wire.encode(response)), response)
+        }
     }
 
     func testFailureResponseRoundTrips() throws {
