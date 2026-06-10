@@ -1,3 +1,19 @@
+/**
+ * @file access_control.c
+ * @brief Access-control capture implementation: a bounded ring behind one lock.
+ *
+ * @details
+ *
+ * @see access_control.h for the API documentation.
+ *
+
+ * @author SimEnclave Contributors
+ * @date 2026
+ *
+ * @copyright
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ */
 #include "access_control.h"
 
 #include <pthread.h>

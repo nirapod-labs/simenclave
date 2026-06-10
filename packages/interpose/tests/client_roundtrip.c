@@ -1,8 +1,22 @@
-// A client-level round-trip over the wire: the interposer's transport drives all
-// four ops (GENERATE, GET_PUBKEY, SIGN, DELETE) against a live helper, with no
-// hooks in the picture. This is the C codec and client proving they match the
-// Swift helper end to end, the slice-1 exit. run-mechanism-c.sh starts the helper
-// and points SIMENCLAVE_PORT and SIMENCLAVE_TOKEN at it.
+/**
+ * @file client_roundtrip.c
+ * @brief Client round-trip: the transport drives every op against a live helper.
+ *
+ * @details
+ * The interposer's transport drives GENERATE, GET_PUBKEY, SIGN, and DELETE
+ * against a live helper, with no hooks in the picture. This is the C codec
+ * and client proving they match the Swift helper end to end.
+ * run-mechanism-c.sh starts the helper and points SIMENCLAVE_PORT and
+ * SIMENCLAVE_TOKEN at it.
+ *
+
+ * @author SimEnclave Contributors
+ * @date 2026
+ *
+ * @copyright
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ */
 #include "client.h"
 
 #include <CommonCrypto/CommonCrypto.h>

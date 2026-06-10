@@ -1,6 +1,22 @@
-// Default hook backend: Dobby inline hooking (Apache-2.0). Inline hooking patches
-// the resolved function, so it is independent of the symbol-binding format and
-// works in the simulator where code-signing is relaxed.
+/**
+ * @file dobby_backend.c
+ * @brief Default hook backend: Dobby inline hooking.
+ *
+ * @details
+ * Inline hooking patches the resolved function, so it is independent of the
+ * symbol-binding format and works in the simulator where code-signing is
+ * relaxed. Dobby itself is Apache-2.0, fetched and pinned by CMake.
+ *
+ * @see hook_backend.h for the seam this implements.
+ *
+
+ * @author SimEnclave Contributors
+ * @date 2026
+ *
+ * @copyright
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ */
 #include "hook_backend.h"
 
 #include <stddef.h>

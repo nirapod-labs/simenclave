@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+#
+# Doxygen configuration for the C tree (the protocol codec and the interposer).
+# Run: make docs. Output: build-docs/html/index.html. WARN_AS_ERROR makes the
+# run the documentation gate: an undocumented public symbol or a malformed tag
+# fails it. The Swift packages document through swift-docc conventions, not
+# this file. Only non-default keys are set.
+
+PROJECT_NAME           = "SimEnclave"
+PROJECT_BRIEF          = "A real Secure Enclave for the iOS Simulator"
+
+# Headers only: the headers are the public API and the gate enforces full
+# coverage of them. Implementation files carry @file blocks for source readers
+# but their internals stay out of the API site.
+INPUT                  = packages/protocol/c/include \
+                         packages/protocol/c/src \
+                         packages/interpose/include \
+                         packages/interpose/src
+FILE_PATTERNS          = *.h
+RECURSIVE              = YES
+
+OUTPUT_DIRECTORY       = build-docs
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+
+# The documentation gate: only documented symbols appear, and any warning
+# (undocumented public symbol, wrong @param name or count) fails the run.
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = NO
+WARN_AS_ERROR          = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_FORMAT            = "$file:$line: $text"
+QUIET                  = YES
+
+GENERATE_TREEVIEW      = YES
+SOURCE_BROWSER         = YES
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+
+HAVE_DOT               = NO
+
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+PREDEFINED             = "__attribute__(x)="

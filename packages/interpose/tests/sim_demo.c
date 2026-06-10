@@ -1,8 +1,22 @@
-// The in-simulator demo. It makes a standard Secure Enclave key request, copies
-// the public key, signs a digest, and verifies. It links no interposer: the
-// interposer is injected by DYLD_INSERT_LIBRARIES. Without injection the first
-// call fails, because the simulator has no SEP; with injection it succeeds
-// against the host helper. So a verify of 1 is mechanism D.
+/**
+ * @file sim_demo.c
+ * @brief The in-simulator demo: a standard SE key request, bridged or failing.
+ *
+ * @details
+ * It makes a standard Secure Enclave key request, copies the public key,
+ * signs a digest, and verifies. It links no interposer: the interposer is
+ * injected by DYLD_INSERT_LIBRARIES. Without injection the first call fails,
+ * because the simulator has no SEP; with injection it succeeds against the
+ * host helper. So a verify of 1 is mechanism D.
+ *
+
+ * @author SimEnclave Contributors
+ * @date 2026
+ *
+ * @copyright
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ */
 #include <CommonCrypto/CommonCrypto.h>
 #include <Security/Security.h>
 #include <stdio.h>

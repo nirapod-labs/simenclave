@@ -15,7 +15,7 @@ C_FILES    := $(shell find packages/interpose/src packages/interpose/include pac
                             -type f \( -name '*.c' -o -name '*.h' \) 2>/dev/null)
 
 .PHONY: help bootstrap configure build dylib helper test test-portable \
-        fence mechanism-c mechanism-d cryptokit-probe lint format clean
+        fence docs mechanism-c mechanism-d cryptokit-probe lint format clean
 
 help: ## Show targets
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-14s %s\n", $$1, $$2}'
@@ -56,6 +56,9 @@ test-portable: ## The subset that runs on any runner (no SEP, no Xcode): C codec
 
 fence: ## The static fence assertions; the runtime legs ride mechanism-d
 	bash scripts/fence-check.sh
+
+docs: ## Generate the C API docs (Doxyfile); any doc warning fails the run
+	doxygen Doxyfile
 
 mechanism-c: ## Host integration proof: hooks route to the helper, signature verifies
 	bash packages/interpose/tests/run-mechanism-c.sh

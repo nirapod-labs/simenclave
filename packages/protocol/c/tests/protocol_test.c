@@ -1,5 +1,19 @@
-// Unit checks for the C codec. Interop with the Swift end is proven for real by
-// the mechanism-C harness, where this code talks to the Swift helper.
+/**
+ * @file protocol_test.c
+ * @brief Unit checks for the C codec.
+ *
+ * @details
+ * Interop with the Swift end is proven for real by the mechanism-C harness,
+ * where this code talks to the Swift helper.
+ *
+
+ * @author SimEnclave Contributors
+ * @date 2026
+ *
+ * @copyright
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ */
 #include <stdio.h>
 #include <string.h>
 

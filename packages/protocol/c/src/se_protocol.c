@@ -1,6 +1,22 @@
-// Minimal CBOR for the two M0 messages: unsigned ints, byte strings, text
-// strings, and a definite-length map with unsigned-integer keys. Emits the
-// shortest form, the canonical encoding, so it byte-matches the Swift codec.
+/**
+ * @file se_protocol.c
+ * @brief Hand-written canonical CBOR: the request encoders and the response decoder.
+ *
+ * @details
+ * Minimal CBOR for the protocol's messages: unsigned ints, byte strings, text
+ * strings, and a definite-length map with unsigned-integer keys. Emits the
+ * shortest form, the canonical encoding, so it byte-matches the Swift codec.
+ *
+ * @see se_protocol.h for the API documentation.
+ *
+
+ * @author SimEnclave Contributors
+ * @date 2026
+ *
+ * @copyright
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ */
 #include "se_protocol.h"
 
 #include <limits.h>
@@ -184,8 +200,8 @@ int se_encode_hello(const uint8_t *token, size_t token_len, uint64_t version, ui
 }
 
 int se_encode_find_by_tag(const uint8_t *token, size_t token_len, const uint8_t *udid,
-                          size_t udid_len, const uint8_t *app_tag, size_t app_tag_len,
-                          uint8_t *out, size_t cap) {
+                          size_t udid_len, const uint8_t *app_tag, size_t app_tag_len, uint8_t *out,
+                          size_t cap) {
   writer w = {out, cap, 0, 0};
   w_head(&w, CBOR_MAP, 4); // map(4): op, token, udid, app tag, keys ascending
   w_head(&w, CBOR_UINT, K_OP);

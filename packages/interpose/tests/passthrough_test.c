@@ -1,13 +1,27 @@
-// The passthrough invariant as a first-class test: a non-Secure-Enclave keychain
-// call returns identically with and without the interposer's hooks installed. Two
-// shapes are probed, each before and after install: a class the hooks ignore
-// outright (a generic password) and the class they inspect but for a tag that is
-// not theirs (a key query). Both must reach the real keychain unchanged. The test
-// also asserts the fail-closed basis of the whole design: a public key, which is
-// exactly what the shadow carrier is, cannot sign.
-//
-// No helper is involved; every operation here passes through to the real Security
-// framework, so this runs as a plain ctest.
+/**
+ * @file passthrough_test.c
+ * @brief The passthrough invariant as a first-class test.
+ *
+ * @details
+ * A non-Secure-Enclave keychain call returns identically with and without the
+ * interposer's hooks installed. Two shapes are probed, each before and after
+ * install: a class the hooks ignore outright (a generic password) and the
+ * class they inspect but for a tag that is not theirs (a key query). Both
+ * must reach the real keychain unchanged. The test also asserts the
+ * fail-closed basis of the whole design: a public key, which is exactly what
+ * the shadow carrier is, cannot sign.
+ *
+ * No helper is involved; every operation here passes through to the real
+ * Security framework, so this runs as a plain ctest.
+ *
+
+ * @author SimEnclave Contributors
+ * @date 2026
+ *
+ * @copyright
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ */
 #include "simenclave_interpose.h"
 
 #include <Security/Security.h>

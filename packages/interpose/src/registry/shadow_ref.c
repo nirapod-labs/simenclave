@@ -1,3 +1,19 @@
+/**
+ * @file shadow_ref.c
+ * @brief Shadow-ref registry implementation: a small table behind one lock.
+ *
+ * @details
+ *
+ * @see shadow_ref.h for the API documentation.
+ *
+
+ * @author SimEnclave Contributors
+ * @date 2026
+ *
+ * @copyright
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ */
 #include "shadow_ref.h"
 
 #include <pthread.h>

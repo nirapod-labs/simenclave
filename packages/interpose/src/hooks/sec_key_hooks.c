@@ -1,9 +1,23 @@
-// The M2 hook set. A Secure Enclave key request routes to the host helper and
-// comes back as a public-key-only shadow ref; the shadow's public-key and
-// signature calls route to the host. Every non-SE call passes through to the
-// saved original. The shadow cannot sign, so a routing miss fails loud rather
-// than ever emitting a software signature. The SecItem hooks persist a key by tag
-// within the session; durable persistence across relaunches is M3.
+/**
+ * @file sec_key_hooks.c
+ * @brief The hook set: SecKey, SecItem, and SecAccessControl interception.
+ *
+ * @details
+ * A Secure Enclave key request routes to the host helper and comes back as a
+ * public-key-only shadow ref; the shadow's public-key and signature calls
+ * route to the host. Every non-SE call passes through to the saved original.
+ * The shadow cannot sign, so a routing miss fails loud rather than ever
+ * emitting a software signature. The SecItem hooks persist a key by tag
+ * within the session; durable persistence across relaunches is M5.
+ *
+
+ * @author SimEnclave Contributors
+ * @date 2026
+ *
+ * @copyright
+ * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ */
 #include "../../include/simenclave_interpose.h"
 #include "../backend/hook_backend.h"
 #include "../registry/access_control.h"
@@ -149,8 +163,7 @@ static int carrier_cannot_sign(SecKeyRef carrier) {
 // keyed by the returned ref, so the create hook can read the otherwise-opaque access
 // control later. Always returns the real result untouched; the capture is a side
 // effect, so passthrough holds for every caller, Secure Enclave create or not.
-static SecAccessControlRef hook_ac_create_with_flags(CFAllocatorRef allocator,
-                                                     CFTypeRef protection,
+static SecAccessControlRef hook_ac_create_with_flags(CFAllocatorRef allocator, CFTypeRef protection,
                                                      SecAccessControlCreateFlags flags,
                                                      CFErrorRef *error) {
   if (!orig_ac_create_with_flags) { // install-window guard, fail closed with an error
