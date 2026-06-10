@@ -16,9 +16,13 @@ import Glibc
 /// from a simulated app.
 public final class LoopbackListener: @unchecked Sendable {
     private let router: RequestRouter
+    private let lifecycleLock = NSLock()
     private var listenFD: Int32 = -1
     private var worker: Thread?
     private var running = false
+    // Signaled when the accept loop exits, so stop() can wait for it: a kill switch that
+    // returns has actually stopped accepting.
+    private let acceptExited = DispatchSemaphore(value: 0)
 
     /// The bound port, valid after `start`. Zero before then.
     public private(set) var port: UInt16 = 0
@@ -49,9 +53,11 @@ public final class LoopbackListener: @unchecked Sendable {
         guard bound == 0 else { close(fd); throw SocketError.system("bind: \(errnoText())") }
         guard listen(fd, 16) == 0 else { close(fd); throw SocketError.system("listen: \(errnoText())") }
 
+        lifecycleLock.lock()
         port = boundPort(fd)
         listenFD = fd
         running = true
+        lifecycleLock.unlock()
 
         let worker = Thread { [weak self] in self?.acceptLoop() }
         worker.stackSize = 1 << 20
@@ -60,31 +66,68 @@ public final class LoopbackListener: @unchecked Sendable {
         worker.start()
     }
 
-    /// Stop accepting and close the listening socket.
+    /// Stop accepting and close the listening socket. Synchronous: it wakes the accept
+    /// loop and waits for it to exit, so a returning kill switch has truly stopped
+    /// serving. In-flight connections finish on their own threads; the token is cleared
+    /// separately, so no new request authenticates.
     public func stop() {
+        lifecycleLock.lock()
+        let wasRunning = running
         running = false
-        if listenFD >= 0 {
-            close(listenFD)
-            listenFD = -1
+        let fd = listenFD
+        listenFD = -1
+        lifecycleLock.unlock()
+
+        if fd >= 0 {
+            // shutdown() wakes a thread parked in accept(); on Darwin close() alone does
+            // not. Then close to release the descriptor.
+            shutdown(fd, SHUT_RDWR)
+            close(fd)
+        }
+        if wasRunning {
+            _ = acceptExited.wait(timeout: .now() + 2)
         }
     }
 
     private func acceptLoop() {
-        while running {
-            let client = accept(listenFD, nil, nil)
+        defer { acceptExited.signal() }
+        while isRunning() {
+            let fd = currentListenFD()
+            if fd < 0 { break }
+            let client = accept(fd, nil, nil)
             if client < 0 {
-                if running { continue }
+                if isRunning() { continue }
                 break
             }
             // Serve each connection on its own thread, so a biometry sign that parks on a
             // human prompt blocks only its connection: the accept loop keeps accepting and
             // a silent sign on another connection keeps moving. The handle store is
-            // lock-guarded and the SEP serializes, so concurrent serves are safe.
-            let connection = Thread { [weak self] in self?.serve(client) }
+            // lock-guarded and the SEP serializes, so concurrent serves are safe. Threads
+            // are unbounded by design: the dev threat model is same-user loopback with a
+            // handful of connections. Close the fd even if the listener is already gone.
+            let connection = Thread { [weak self] in
+                guard let self else {
+                    close(client)
+                    return
+                }
+                self.serve(client)
+            }
             connection.stackSize = 1 << 20
             connection.name = "simenclave.connection"
             connection.start()
         }
+    }
+
+    private func isRunning() -> Bool {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return running
+    }
+
+    private func currentListenFD() -> Int32 {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return listenFD
     }
 
     private func serve(_ fd: Int32) {

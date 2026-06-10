@@ -92,6 +92,34 @@ final class SecureEnclaveServiceTests: XCTestCase {
         XCTAssertTrue(verifies(digest: digest, signature: signature, x963: x963))
     }
 
+    func testFlagsForceThePromptEvenWhenTheClassIsSilent() throws {
+        // A silent class but presence flags: the helper derives requiresPrompt from the
+        // flags it built, so the prompt route is taken regardless of the class bit.
+        let gate = MockBiometricGate(.deny)
+        let service = SecureEnclaveService(biometricGate: gate)
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+        let (handle, _) = try service.generate(requiresBiometry: false, accessFlags: Self.promptFlags)
+        XCTAssertThrowsError(try service.sign(handle: handle, digest: Data(repeating: 0x5A, count: 32)))
+        XCTAssertEqual(gate.callCount, 1, "presence flags route through the gate regardless of the class")
+    }
+
+    func testPromptsSerialize() throws {
+        let gate = ConcurrencyRecordingGate()
+        let service = SecureEnclaveService(biometricGate: gate)
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+        let (handle, _) = try service.generate(requiresBiometry: true, accessFlags: Self.promptFlags)
+        let group = DispatchGroup()
+        for _ in 0 ..< 4 {
+            group.enter()
+            DispatchQueue.global().async {
+                _ = try? service.sign(handle: handle, digest: Data(repeating: 0x5A, count: 32))
+                group.leave()
+            }
+        }
+        group.wait()
+        XCTAssertEqual(gate.maxConcurrent, 1, "prompts must serialize through one presenter")
+    }
+
     /// Verify a DER ECDSA signature over a digest using the public key the service
     /// exported, through the same Security-framework verify path a device uses.
     private func verifies(digest: Data, signature: Data, x963: Data) -> Bool {
@@ -136,5 +164,25 @@ final class MockBiometricGate: BiometricGate, @unchecked Sendable {
         case let .authorize(bytes): return bytes
         case .deny: throw SecureEnclaveService.Failure.signing("denied (mock)")
         }
+    }
+}
+
+/// A gate that records the peak number of concurrent prompts, to prove the service
+/// serializes them. It sleeps briefly, so a missing serializer would show overlap.
+final class ConcurrencyRecordingGate: BiometricGate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var active = 0
+    private var peak = 0
+
+    var maxConcurrent: Int {
+        lock.lock(); defer { lock.unlock() }
+        return peak
+    }
+
+    func promptedSign(key _: SecKey, digest _: Data, reason _: String) throws -> Data {
+        lock.lock(); active += 1; peak = max(peak, active); lock.unlock()
+        Thread.sleep(forTimeInterval: 0.05)
+        lock.lock(); active -= 1; lock.unlock()
+        return Data(repeating: 0x30, count: 70)
     }
 }

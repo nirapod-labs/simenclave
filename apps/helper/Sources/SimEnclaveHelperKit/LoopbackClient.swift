@@ -34,6 +34,11 @@ public struct LoopbackClient: Sendable {
         }
         guard connected == 0 else { throw SocketError.system("connect: \(errnoText())") }
 
+        // A receive timeout, so a stalled helper surfaces as a clean error rather than a
+        // hung caller: a regressed accept loop would otherwise block this read forever.
+        var timeout = timeval(tv_sec: 10, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+
         try writeFrame(fd, Wire.encode(request, token: token.bytes))
         return try Wire.decodeResponse(readFrame(fd))
     }

@@ -36,6 +36,17 @@ public final class SecureEnclaveService: @unchecked Sendable {
     private let lock = NSLock()
     private var keys: [Data: StoredKey] = [:]
     private let biometricGate: BiometricGate?
+    // Serializes prompts so two prompted signs never raise two sheets at once. Held only
+    // around the gate call, never together with the handle-store lock, so it cannot
+    // deadlock or serialize a silent sign.
+    private let promptLock = NSLock()
+
+    /// The access-control flags that make a key require a prompt: any biometric or
+    /// user-presence constraint. requiresPrompt is derived from the flags the helper
+    /// actually built, not from the class bit, so the two cannot desync helper-side.
+    private static let promptFlagMask = UInt(
+        SecAccessControlCreateFlags([.userPresence, .biometryAny, .biometryCurrentSet,
+                                     .devicePasscode]).rawValue)
 
     /// The biometric gate drives the prompt for a prompted key. The menubar app installs
     /// the real one; the CLI helper installs none, so a prompted sign there fails closed;
@@ -103,8 +114,12 @@ public final class SecureEnclaveService: @unchecked Sendable {
 
         let publicKey = try exportPublicKey(of: privateKey)
         let handle = Self.randomHandle()
+        // Derive the prompt flag from the gate that was built, not the class bit, so a
+        // relayed flag set with a presence constraint always prompts even if the class
+        // somehow said silent.
+        let requiresPrompt = accessFlags.map { ($0 & Self.promptFlagMask) != 0 } ?? requiresBiometry
         lock.lock()
-        keys[handle] = StoredKey(key: privateKey, requiresPrompt: requiresBiometry)
+        keys[handle] = StoredKey(key: privateKey, requiresPrompt: requiresPrompt)
         lock.unlock()
         return (handle, publicKey)
     }
@@ -128,6 +143,10 @@ public final class SecureEnclaveService: @unchecked Sendable {
         // runs Touch ID. Without a gate (the CLI helper) the sign fails closed rather
         // than prompting in a process that cannot present, or signing silently.
         guard let biometricGate else { throw Failure.biometryUnavailable }
+        // Serialize prompts through one presenter: a second prompted sign waits its turn
+        // rather than racing a second sheet. The handle-store lock is already released.
+        promptLock.lock()
+        defer { promptLock.unlock() }
         return try biometricGate.promptedSign(
             key: stored.key, digest: digest, reason: "Sign with the Secure Enclave")
     }
