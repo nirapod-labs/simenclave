@@ -6,6 +6,7 @@ import SimEnclaveProtocol
 /// generic failure; the full device-to-code table is M3.
 enum OSStatusCode {
     static let authFailed: Int64 = -25293 // errSecAuthFailed
+    static let itemNotFound: Int64 = -25300 // errSecItemNotFound
     static let internalError: Int64 = -2070 // errSecInternalComponent
 }
 
@@ -44,9 +45,16 @@ public struct RequestRouter: Sendable {
             case .generate:
                 let (handle, publicKey) = try service.generate()
                 return .generated(handle: handle, publicKey: publicKey)
+            case let .getPublicKey(handle):
+                return .publicKey(try service.publicKey(for: handle))
             case let .sign(handle, digest):
                 return .signed(signature: try service.sign(handle: handle, digest: digest))
+            case let .delete(handle):
+                try service.delete(handle: handle)
+                return .deleted
             }
+        } catch SecureEnclaveService.Failure.unknownHandle {
+            return .failure(code: OSStatusCode.itemNotFound, message: "unknown handle")
         } catch {
             return .failure(code: OSStatusCode.internalError, message: String(describing: error))
         }
