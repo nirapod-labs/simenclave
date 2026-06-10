@@ -10,7 +10,7 @@ export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Develope
 HARNESS="$REPO/build/bin/mechanism_c"
 
 [ -f "$REPO/build/CMakeCache.txt" ] || make -C "$REPO" configure
-cmake --build "$REPO/build" --target mechanism_c -j >/dev/null || { echo "harness build failed"; exit 1; }
+cmake --build "$REPO/build" --target mechanism_c client_roundtrip -j >/dev/null || { echo "harness build failed"; exit 1; }
 ( cd "$REPO/apps/helper" && xcrun swift build ) >/dev/null 2>&1 || { echo "helper build failed"; exit 1; }
 HELPER="$REPO/apps/helper/.build/debug/simenclave-helper"
 
@@ -32,4 +32,10 @@ echo "helper on 127.0.0.1:$PORT"
 TOKEN="$(cat "$SIM_HOME/token" 2>/dev/null)"
 [ -z "$TOKEN" ] && { echo "no token file"; cat "$OUT"; exit 1; }
 
-SIMENCLAVE_PORT="$PORT" SIMENCLAVE_TOKEN="$TOKEN" "$HARNESS"
+RC=0
+echo "--- mechanism C: hooks route to the helper ---"
+SIMENCLAVE_PORT="$PORT" SIMENCLAVE_TOKEN="$TOKEN" "$HARNESS" || RC=1
+echo ""
+echo "--- client round-trip: generate, get_pubkey, sign, delete ---"
+SIMENCLAVE_PORT="$PORT" SIMENCLAVE_TOKEN="$TOKEN" "$REPO/build/bin/client_roundtrip" || RC=1
+exit $RC

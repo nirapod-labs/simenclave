@@ -26,6 +26,8 @@ typedef enum {
 typedef enum {
   SE_RESP_GENERATED,
   SE_RESP_SIGNED,
+  SE_RESP_PUBKEY,
+  SE_RESP_DELETED,
   SE_RESP_ERROR,
 } se_resp_kind;
 
@@ -48,6 +50,14 @@ int se_encode_generate(const uint8_t *token, size_t token_len, uint8_t *out, siz
 // digest.
 int se_encode_sign(const uint8_t *token, size_t token_len, const uint8_t *handle, size_t handle_len,
                    const uint8_t *digest, size_t digest_len, uint8_t *out, size_t cap);
+
+// Encode a GET_PUBKEY request payload carrying the token and a handle.
+int se_encode_get_pubkey(const uint8_t *token, size_t token_len, const uint8_t *handle,
+                         size_t handle_len, uint8_t *out, size_t cap);
+
+// Encode a DELETE request payload carrying the token and a handle.
+int se_encode_delete(const uint8_t *token, size_t token_len, const uint8_t *handle,
+                     size_t handle_len, uint8_t *out, size_t cap);
 
 // Decode a response payload into out, dispatching on op and status.
 se_status se_decode_response(const uint8_t *payload, size_t len, se_response *out);

@@ -17,7 +17,7 @@ enum {
   K_TOKEN = 7,
 };
 // ops and status
-enum { OP_GENERATE = 2, OP_SIGN = 4, ST_OK = 0, ST_ERROR = 1 };
+enum { OP_GENERATE = 2, OP_GET_PUBKEY = 3, OP_SIGN = 4, OP_DELETE = 5, ST_OK = 0, ST_ERROR = 1 };
 // CBOR major types (RFC 8949 3.1): uint, negative int, byte string, text, map
 enum { CBOR_UINT = 0, CBOR_NEGINT = 1, CBOR_BYTES = 2, CBOR_TEXT = 3, CBOR_MAP = 5 };
 
@@ -93,6 +93,30 @@ int se_encode_sign(const uint8_t *token, size_t token_len, const uint8_t *handle
   w_head(&w, CBOR_UINT, K_TOKEN);
   w_bytes(&w, CBOR_BYTES, token, token_len);
   return w.overflow ? -1 : (int)w.pos;
+}
+
+// GET_PUBKEY and DELETE share a shape: the op, a handle, and the token.
+static int encode_handle_op(uint64_t op, const uint8_t *token, size_t token_len,
+                            const uint8_t *handle, size_t handle_len, uint8_t *out, size_t cap) {
+  writer w = {out, cap, 0, 0};
+  w_head(&w, CBOR_MAP, 3); // map(3)
+  w_head(&w, CBOR_UINT, K_OP);
+  w_head(&w, CBOR_UINT, op);
+  w_head(&w, CBOR_UINT, K_HANDLE);
+  w_bytes(&w, CBOR_BYTES, handle, handle_len);
+  w_head(&w, CBOR_UINT, K_TOKEN);
+  w_bytes(&w, CBOR_BYTES, token, token_len);
+  return w.overflow ? -1 : (int)w.pos;
+}
+
+int se_encode_get_pubkey(const uint8_t *token, size_t token_len, const uint8_t *handle,
+                         size_t handle_len, uint8_t *out, size_t cap) {
+  return encode_handle_op(OP_GET_PUBKEY, token, token_len, handle, handle_len, out, cap);
+}
+
+int se_encode_delete(const uint8_t *token, size_t token_len, const uint8_t *handle,
+                     size_t handle_len, uint8_t *out, size_t cap) {
+  return encode_handle_op(OP_DELETE, token, token_len, handle, handle_len, out, cap);
 }
 
 typedef struct {
@@ -234,6 +258,15 @@ se_status se_decode_response(const uint8_t *payload, size_t len, se_response *ou
     out->kind = SE_RESP_SIGNED;
     return copy_span(find(entries, count, K_SIG), out->signature, sizeof(out->signature),
                      &out->signature_len);
+  }
+  if (op->uintval == OP_GET_PUBKEY) {
+    out->kind = SE_RESP_PUBKEY;
+    return copy_span(find(entries, count, K_PUBKEY), out->public_key, sizeof(out->public_key),
+                     &out->public_key_len);
+  }
+  if (op->uintval == OP_DELETE) {
+    out->kind = SE_RESP_DELETED;
+    return SE_OK;
   }
   return SE_ERR_OPCODE;
 }

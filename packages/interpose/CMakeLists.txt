@@ -27,6 +27,12 @@ else()
   add_executable(mechanism_c tests/mechanism_c.c)
   target_link_libraries(mechanism_c PRIVATE interpose_core ${SE_FRAMEWORKS})
 
+  # The client round-trip: the transport driving all four wire ops against the
+  # helper directly, no hooks. The same script runs it after mechanism C.
+  add_executable(client_roundtrip tests/client_roundtrip.c)
+  target_include_directories(client_roundtrip PRIVATE src/transport)
+  target_link_libraries(client_roundtrip PRIVATE interpose_core ${SE_FRAMEWORKS})
+
   # The Dobby smoke test stands alone.
   add_executable(hook_smoke tests/hook_smoke.c)
   target_link_libraries(hook_smoke PRIVATE dobby_bundle ${SE_FRAMEWORKS})

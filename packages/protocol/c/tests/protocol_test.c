@@ -47,6 +47,32 @@ int main(void) {
   CHECK(se_decode_response(sign_resp, sizeof(sign_resp), &resp) == SE_OK, "decode signed rc");
   CHECK(resp.kind == SE_RESP_SIGNED && resp.signature_len == 6, "signed fields");
 
+  // GET_PUBKEY { 0:3, 2:handle(4), 7:token(32) } in canonical form.
+  n = se_encode_get_pubkey(token, sizeof(token), handle, 4, buf, sizeof(buf));
+  uint8_t getpub_prefix[] = {0xA3, 0x00, 0x03, 0x02, 0x44, 0xAA,
+                             0xAA, 0xAA, 0xAA, 0x07, 0x58, 0x20};
+  CHECK(n == 44 && memcmp(buf, getpub_prefix, sizeof(getpub_prefix)) == 0 &&
+            memcmp(buf + 12, token, 32) == 0,
+        "get_pubkey bytes");
+
+  // DELETE { 0:5, 2:handle(4), 7:token(32) } in canonical form, same shape, op 5.
+  n = se_encode_delete(token, sizeof(token), handle, 4, buf, sizeof(buf));
+  uint8_t delete_prefix[] = {0xA3, 0x00, 0x05, 0x02, 0x44, 0xAA,
+                             0xAA, 0xAA, 0xAA, 0x07, 0x58, 0x20};
+  CHECK(n == 44 && memcmp(buf, delete_prefix, sizeof(delete_prefix)) == 0 &&
+            memcmp(buf + 12, token, 32) == 0,
+        "delete bytes");
+
+  // Decode a GET_PUBKEY-ok response { 0:3, 1:0, 3:pubkey(5) }.
+  uint8_t pub_resp[] = {0xA3, 0x00, 0x03, 0x01, 0x00, 0x03, 0x45, 9, 8, 7, 6, 5};
+  CHECK(se_decode_response(pub_resp, sizeof(pub_resp), &resp) == SE_OK, "decode pubkey rc");
+  CHECK(resp.kind == SE_RESP_PUBKEY && resp.public_key_len == 5, "pubkey fields");
+
+  // Decode a DELETE-ok response { 0:5, 1:0 }, status only.
+  uint8_t del_resp[] = {0xA2, 0x00, 0x05, 0x01, 0x00};
+  CHECK(se_decode_response(del_resp, sizeof(del_resp), &resp) == SE_OK, "decode deleted rc");
+  CHECK(resp.kind == SE_RESP_DELETED, "deleted kind");
+
   // Decode an ERROR response carrying "no".
   uint8_t err_resp[] = {0xA3, 0x00, 0x02, 0x01, 0x01, 0x06, 0x62, 'n', 'o'};
   CHECK(se_decode_response(err_resp, sizeof(err_resp), &resp) == SE_OK, "decode error rc");
