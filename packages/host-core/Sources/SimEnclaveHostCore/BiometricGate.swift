@@ -15,6 +15,15 @@ public enum BiometricFailure: Error, Equatable {
     case unknown
 }
 
+/// Approves a simulated app's use of the Secure Enclave, by name. The menubar app shows a
+/// foreground prompt naming the app; the CLI helper installs none, so the op proceeds (the
+/// token already gated it). The approval is a convenience that names the connecting app,
+/// not an access boundary, because the app id is guest-reported and a token holder could
+/// forge it. The token is the boundary.
+public protocol AppApprover {
+    func approve(appID: String) -> Bool
+}
+
 /// Drives the biometric prompt for a key that requires user presence. The real gate
 /// (the menubar app) brings the helper foreground and runs the Mac Touch ID prompt on
 /// the main thread; a test gate returns a canned outcome, so the routing is exercised

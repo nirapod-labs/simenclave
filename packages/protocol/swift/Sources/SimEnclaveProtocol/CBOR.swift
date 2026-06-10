@@ -192,6 +192,12 @@ struct CBORMap {
         return nil
     }
 
+    /// A text string if present and of the right type, else nil. For optional keys.
+    func optionalText(_ key: UInt64) -> String? {
+        if case let .text(value)? = entries[key] { return value }
+        return nil
+    }
+
     func int(_ key: UInt64) throws -> Int64 {
         switch entries[key] {
         case let .uint(value)?: return Int64(value)

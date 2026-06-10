@@ -106,6 +106,18 @@ static SecAccessControlRef extract_access_control(CFDictionaryRef parameters) {
   return NULL;
 }
 
+// The guest app's bundle id, for the approval prompt. Copies it into buf (UTF8) and
+// returns its length, or 0 if there is no main bundle id. Guest-reported, so it names the
+// app but is not an access boundary; the token is.
+static size_t current_app_id(char *buf, size_t cap) {
+  CFBundleRef bundle = CFBundleGetMainBundle();
+  CFStringRef id = bundle ? CFBundleGetIdentifier(bundle) : NULL;
+  if (id && CFStringGetCString(id, buf, (CFIndex)cap, kCFStringEncodingUTF8)) {
+    return strlen(buf);
+  }
+  return 0;
+}
+
 // Build a public SecKeyRef from a 65-byte uncompressed X9.63 point. The length
 // and 0x04 lead byte are validated so a malformed point fails closed (NULL),
 // never a half-built key.
@@ -166,6 +178,11 @@ static SecKeyRef hook_create_random_key(CFDictionaryRef parameters, CFErrorRef *
   // for the prompt, and the flags and protection are relayed verbatim so the helper
   // rebuilds the same gate. An access control that was not captured is a miss, and the
   // create routes as a plain silent key rather than guessing a gate.
+  // The guest app id rides the generate, so the helper's approval prompt can name the
+  // connecting app. Guest-reported, so it names the app but gates nothing.
+  char app_id[256];
+  size_t app_id_len = current_app_id(app_id, sizeof(app_id));
+
   se_response response;
   se_status st;
   SecAccessControlRef ac = extract_access_control(parameters);
@@ -179,10 +196,10 @@ static SecKeyRef hook_create_random_key(CFDictionaryRef parameters, CFErrorRef *
     }
     int biometry = (flags & SE_PROMPT_FLAGS) != 0;
     st = se_client_generate_ac(biometry, (uint64_t)flags, (const uint8_t *)prot, prot_len,
-                               &response);
+                               (const uint8_t *)app_id, app_id_len, &response);
     if (protection) CFRelease(protection); // se_ac_lookup returned it +1
   } else {
-    st = se_client_generate(&response);
+    st = se_client_generate((const uint8_t *)app_id, app_id_len, &response);
   }
   if (st != SE_OK || response.kind != SE_RESP_GENERATED) {
     // An SE create yields a host-backed key or fails; it never falls through to a

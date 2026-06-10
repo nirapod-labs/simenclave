@@ -109,22 +109,26 @@ static int read_token(uint8_t out[32]) {
   return 0;
 }
 
-se_status se_client_generate(se_response *out) {
+se_status se_client_generate(const uint8_t *app_id, size_t app_id_len, se_response *out) {
   uint8_t token[32];
   if (read_token(token) != 0) return SE_ERR_TRUNCATED;
-  uint8_t payload[64];
-  return do_request(payload, se_encode_generate(token, sizeof(token), payload, sizeof(payload)),
+  uint8_t payload[320];
+  return do_request(payload,
+                    se_encode_generate(token, sizeof(token), app_id, app_id_len, payload,
+                                       sizeof(payload)),
                     out);
 }
 
 se_status se_client_generate_ac(int biometry, uint64_t flags, const uint8_t *protection,
-                                size_t protection_len, se_response *out) {
+                                size_t protection_len, const uint8_t *app_id, size_t app_id_len,
+                                se_response *out) {
   uint8_t token[32];
   if (read_token(token) != 0) return SE_ERR_TRUNCATED;
-  uint8_t payload[128];
+  uint8_t payload[384];
   return do_request(payload,
                     se_encode_generate_ac(token, sizeof(token), biometry, flags, protection,
-                                          protection_len, payload, sizeof(payload)),
+                                          protection_len, app_id, app_id_len, payload,
+                                          sizeof(payload)),
                     out);
 }
 

@@ -20,14 +20,21 @@ int main(void) {
   memset(token, 0xAB, sizeof(token));
 
   // GENERATE { 0:2, 7:token } must equal the canonical bytes the Swift codec emits.
-  int n = se_encode_generate(token, sizeof(token), buf, sizeof(buf));
+  int n = se_encode_generate(token, sizeof(token), NULL, 0, buf, sizeof(buf));
   uint8_t gen_prefix[] = {0xA2, 0x00, 0x02, 0x07, 0x58, 0x20};
   CHECK(n == 38 && memcmp(buf, gen_prefix, sizeof(gen_prefix)) == 0 &&
             memcmp(buf + 6, token, 32) == 0,
         "generate bytes");
 
+  // GENERATE with an app id adds key 14 at the end: { 0:2, 7:token, 14:"hi" }, map(3).
+  n = se_encode_generate(token, sizeof(token), (const uint8_t *)"hi", 2, buf, sizeof(buf));
+  CHECK(n == 42 && buf[0] == 0xA3 && buf[38] == 0x0E && buf[39] == 0x62 && buf[40] == 'h' &&
+            buf[41] == 'i',
+        "generate app id bytes");
+
   // GENERATE with an access control, biometry: { 0:2, 7:token, 9:1, 11:flags, 12:"ak" }.
-  n = se_encode_generate_ac(token, sizeof(token), 1, 5, (const uint8_t *)"ak", 2, buf, sizeof(buf));
+  n = se_encode_generate_ac(token, sizeof(token), 1, 5, (const uint8_t *)"ak", 2, NULL, 0, buf,
+                            sizeof(buf));
   uint8_t gen_ac_prefix[] = {0xA5, 0x00, 0x02, 0x07, 0x58, 0x20};
   CHECK(n == 46 && memcmp(buf, gen_ac_prefix, sizeof(gen_ac_prefix)) == 0 &&
             memcmp(buf + 6, token, 32) == 0 && buf[38] == 0x09 && buf[39] == 0x01 &&
@@ -36,7 +43,8 @@ int main(void) {
         "generate_ac bytes");
 
   // A silent key with an access control omits key 9: map(4) { 0:2, 7:token, 11, 12 }.
-  n = se_encode_generate_ac(token, sizeof(token), 0, 5, (const uint8_t *)"ak", 2, buf, sizeof(buf));
+  n = se_encode_generate_ac(token, sizeof(token), 0, 5, (const uint8_t *)"ak", 2, NULL, 0, buf,
+                            sizeof(buf));
   CHECK(n == 44 && buf[0] == 0xA4 && buf[38] == 0x0B && buf[39] == 0x05 && buf[40] == 0x0C,
         "generate_ac silent bytes");
 

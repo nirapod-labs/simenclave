@@ -17,7 +17,7 @@ public struct LoopbackClient: Sendable {
         self.port = port
     }
 
-    public func send(_ request: Request, token: CapabilityToken) throws -> Response {
+    public func send(_ request: Request, token: CapabilityToken, appID: String? = nil) throws -> Response {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw SocketError.system("socket: \(errnoText())") }
         defer { close(fd) }
@@ -39,7 +39,7 @@ public struct LoopbackClient: Sendable {
         var timeout = timeval(tv_sec: 10, tv_usec: 0)
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
 
-        try writeFrame(fd, Wire.encode(request, token: token.bytes))
+        try writeFrame(fd, Wire.encode(request, token: token.bytes, appID: appID))
         return try Wire.decodeResponse(readFrame(fd))
     }
 }

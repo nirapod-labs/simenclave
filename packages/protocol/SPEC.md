@@ -100,11 +100,13 @@ break is detected at the handshake rather than mid-operation:
 { 0: 1, 7: <token>, 8: 1 }
 ```
 
-`GENERATE` asks the helper to mint a key in the Mac SEP. Key class `0` is a
-silent key, class `1` is gated on biometry at sign time:
+`GENERATE` asks the helper to mint a key in the Mac SEP. A silent key omits the
+class; class `1` in key `9` gates the key on biometry at sign time. Optional
+keys `11`/`12` relay the access control verbatim and `14` carries the calling
+app's bundle id for the approval prompt:
 
 ```
-{ 0: 2, 7: <token>, 9: 0 }
+{ 0: 2, 7: <token>, 9: 1 }
 ```
 
 `GET_PUBKEY` returns the public key for a handle a prior `GENERATE` gave back,

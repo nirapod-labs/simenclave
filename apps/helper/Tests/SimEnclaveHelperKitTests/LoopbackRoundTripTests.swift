@@ -198,6 +198,47 @@ final class LoopbackRoundTripTests: XCTestCase {
         }
     }
 
+    func testApprovalPromptGatesANewAppOnce() throws {
+        let approver = MockApprover(allow: true)
+        let service = SecureEnclaveService()
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+        let token = CapabilityToken()
+        let listener = LoopbackListener(router: RequestRouter(
+            service: service, gate: AuthGate(session: token),
+            approval: ApprovalGate(approver: approver)))
+        try listener.start()
+        defer { listener.stop() }
+        let client = LoopbackClient(port: listener.port)
+        // A new app's first generate prompts and, approved, generates.
+        guard case .generated = try client.send(
+            .generate(keyClass: .silent), token: token, appID: "app.one")
+        else { return XCTFail("an approved app must generate") }
+        XCTAssertEqual(approver.callCount, 1)
+        // The same app's next generate is not re-prompted.
+        _ = try client.send(.generate(keyClass: .silent), token: token, appID: "app.one")
+        XCTAssertEqual(approver.callCount, 1, "an approved app is not re-prompted")
+        // A different app prompts again.
+        _ = try client.send(.generate(keyClass: .silent), token: token, appID: "app.two")
+        XCTAssertEqual(approver.callCount, 2)
+    }
+
+    func testApprovalDenialFailsTheRequest() throws {
+        let approver = MockApprover(allow: false)
+        let service = SecureEnclaveService()
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+        let token = CapabilityToken()
+        let listener = LoopbackListener(router: RequestRouter(
+            service: service, gate: AuthGate(session: token),
+            approval: ApprovalGate(approver: approver)))
+        try listener.start()
+        defer { listener.stop() }
+        let client = LoopbackClient(port: listener.port)
+        guard case let .failure(code, _, _) = try client.send(
+            .generate(keyClass: .silent), token: token, appID: "app.x")
+        else { return XCTFail("a denied app must fail") }
+        XCTAssertEqual(code, -128) // errSecUserCanceled
+    }
+
     private func verifies(digest: Data, signature: Data, x963: Data) -> Bool {
         let attributes: [String: Any] = [
             kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
@@ -246,5 +287,23 @@ final class CategoryGate: BiometricGate, @unchecked Sendable {
     init(_ failure: BiometricFailure) { self.failure = failure }
     func promptedSign(key _: SecKey, digest _: Data, reason _: String) throws -> Data {
         throw failure
+    }
+}
+
+/// An app approver with a fixed answer, recording how many times it was prompted, to
+/// prove a new app is gated once and an approved one is not re-prompted.
+final class MockApprover: AppApprover, @unchecked Sendable {
+    private let allow: Bool
+    private let lock = NSLock()
+    private var calls = 0
+    init(allow: Bool) { self.allow = allow }
+    var callCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return calls
+    }
+
+    func approve(appID _: String) -> Bool {
+        lock.lock(); calls += 1; lock.unlock()
+        return allow
     }
 }

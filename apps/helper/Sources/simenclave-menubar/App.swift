@@ -45,6 +45,26 @@ final class AppKitBiometricGate: BiometricGate {
     }
 }
 
+/// The real app approver, for the menubar (AppKit) helper. It foregrounds and shows a
+/// modal alert naming the connecting app, on the main thread; the developer allows or
+/// denies. A convenience that names the app, not an access boundary. Verified by a
+/// developer on the menubar build; the headless suite drives the seam through a mock.
+final class AppKitApprover: AppApprover {
+    func approve(appID: String) -> Bool {
+        var allowed = false
+        DispatchQueue.main.sync {
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.messageText = "Allow Secure Enclave access?"
+            alert.informativeText = "Simulator app \(appID) wants to use the Secure Enclave."
+            alert.addButton(withTitle: "Allow")
+            alert.addButton(withTitle: "Deny")
+            allowed = alert.runModal() == .alertFirstButtonReturn
+        }
+        return allowed
+    }
+}
+
 /// The service lifecycle behind the menu: mint the token, write the file, start
 /// the loopback listener, and tear all of it down on stop. This is the same kit
 /// the CLI uses; the menu is only a face over it.
@@ -66,7 +86,11 @@ final class HelperController {
             FileHandle.standardError.write(Data("simenclave-menubar: token file: \(error)\n".utf8))
             return false
         }
-        let started = LoopbackListener(router: RequestRouter(service: service, gate: AuthGate(session: token)))
+        let router = RequestRouter(
+            service: service,
+            gate: AuthGate(session: token),
+            approval: ApprovalGate(approver: AppKitApprover()))
+        let started = LoopbackListener(router: router)
         do {
             try started.start()
         } catch {

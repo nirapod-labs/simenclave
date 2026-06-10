@@ -47,17 +47,18 @@ typedef struct {
   uint64_t version; // the protocol version on a HELLO response
 } se_response;
 
-// Encode a GENERATE request payload (CBOR, no frame), carrying the capability
-// token. Returns bytes written, or -1 if the buffer is too small.
-int se_encode_generate(const uint8_t *token, size_t token_len, uint8_t *out, size_t cap);
+// Encode a GENERATE request payload (CBOR, no frame), carrying the capability token and,
+// when app_id_len is non-zero, the guest app id (key 14). Returns bytes written, or -1.
+// With no app id the bytes are unchanged.
+int se_encode_generate(const uint8_t *token, size_t token_len, const uint8_t *app_id,
+                       size_t app_id_len, uint8_t *out, size_t cap);
 
 // Encode a GENERATE request that carries an access-control descriptor: the key class
-// (biometry adds key 9), the raw SecAccessControlCreateFlags (key 11), and the
-// protection constant relayed verbatim as text (key 12). The plain se_encode_generate
-// stays the no-access-control form, so its bytes are unchanged.
+// (biometry adds key 9), the raw SecAccessControlCreateFlags (key 11), the protection
+// constant relayed verbatim as text (key 12), and the guest app id (key 14) when present.
 int se_encode_generate_ac(const uint8_t *token, size_t token_len, int biometry, uint64_t flags,
-                          const uint8_t *protection, size_t protection_len, uint8_t *out,
-                          size_t cap);
+                          const uint8_t *protection, size_t protection_len, const uint8_t *app_id,
+                          size_t app_id_len, uint8_t *out, size_t cap);
 
 // Encode a SIGN request payload carrying the token, the handle, and a 32-byte
 // digest.
