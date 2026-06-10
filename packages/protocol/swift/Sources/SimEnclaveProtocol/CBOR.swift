@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+
 import Foundation
 
 /// The subset of CBOR (RFC 8949) the protocol uses: unsigned integers, byte

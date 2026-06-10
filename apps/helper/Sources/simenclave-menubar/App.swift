@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+
 // The M1 helper as a menubar app. It runs the same loopback signing service as
 // the CLI (SimEnclaveHelperKit) and adds a status item showing the bound port, a
 // kill switch that stops the service and clears the token, and quit. It is an
