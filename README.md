@@ -2,9 +2,9 @@
 
 SimEnclave gives the iOS Simulator a real Secure Enclave. It injects a small interposer into a simulated app, catches the `SecKey` calls, and routes the Secure Enclave ones to your Mac's actual SEP over a local channel. The app signs with real hardware P-256. No mock, no software key, and the app itself imports nothing.
 
-It exists because the iOS Simulator has no Secure Enclave. That means the one thing a hardware-key wallet does, sign with a key that never leaves the chip, can't run where you develop all day, forcing a physical device for every signing change. SimEnclave fixes that without weakening the security property and without ever becoming something that could ship.
+It exists because the iOS Simulator has no Secure Enclave. That means the one thing hardware-backed signing depends on, a key that never leaves the chip, can't run where you develop all day, forcing a physical device for every signing change. SimEnclave fixes that without weakening the security property and without ever becoming something that could ship.
 
-> Status: early. The design is locked (see the architecture and FOUNDATION-ADR-001 in the `nirapod-arch` repo). The code is being built milestone by milestone. See [ROADMAP.md](ROADMAP.md).
+> Status: early. The design is settled, and the code is being built milestone by milestone. See [ROADMAP.md](ROADMAP.md).
 
 ## How it works, in one paragraph
 

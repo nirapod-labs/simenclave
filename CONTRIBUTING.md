@@ -17,6 +17,6 @@ Run `pnpm install` and `lefthook install` once. After that, formatting and the c
 
 Filled in as the milestones land. The shape: the helper is a Swift app built with XcodeGen, the interposer is C built with clang for the Simulator slice, and the JS side is a pnpm workspace.
 
-## Where the design lives
+## Design before code
 
-The decisions and the architecture live in the `nirapod-arch` repo, not here. If a change would alter the mechanism, the protocol, or the security model, it needs a design change there first. Code follows the design, not the other way around.
+The mechanism, the protocol, and the security model are settled. A change to any of them is a design discussion first, and the code follows. Not the other way around.
