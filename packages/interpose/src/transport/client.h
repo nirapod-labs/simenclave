@@ -11,5 +11,6 @@ se_status se_client_sign(const uint8_t *handle, size_t handle_len, const uint8_t
                          size_t digest_len, se_response *out);
 se_status se_client_get_pubkey(const uint8_t *handle, size_t handle_len, se_response *out);
 se_status se_client_delete(const uint8_t *handle, size_t handle_len, se_response *out);
+se_status se_client_hello(uint64_t version, se_response *out);
 
 #endif

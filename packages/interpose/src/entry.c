@@ -4,10 +4,15 @@
 #include "../include/simenclave_interpose.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
 __attribute__((constructor)) static void simenclave_load(void) {
+  // Inert without configuration: a stray DYLD_INSERT_LIBRARIES outside a wired dev
+  // scheme installs nothing, which shrinks the blast radius of an accidental
+  // injection. This is not the fence; a release build bundles no dylib at all.
+  if (!getenv("SIMENCLAVE_PORT") && !getenv("SIMENCLAVE_TOKEN")) return;
   int failures = simenclave_install_hooks();
   if (failures != 0) {
-    fprintf(stderr, "[simenclave] %d SecKey hook(s) failed to install\n", failures);
+    fprintf(stderr, "[simenclave] %d hook(s) failed to install\n", failures);
   }
 }
