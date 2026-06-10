@@ -2,17 +2,43 @@ import Foundation
 import SimEnclaveHostCore
 import SimEnclaveProtocol
 
-/// Turns a decoded request into a response by driving the Mac Secure Enclave.
-/// One `SecureEnclaveService` is shared across every connection, so a key from a
-/// `GENERATE` on one connection is signable by a `SIGN` on the next.
+/// The OSStatus codes the helper returns. M1 lands the auth failure and a
+/// generic failure; the full device-to-code table is M3.
+enum OSStatusCode {
+    static let authFailed: Int64 = -25293 // errSecAuthFailed
+    static let internalError: Int64 = -2070 // errSecInternalComponent
+}
+
+/// Turns a request into a response by driving the Mac Secure Enclave, behind the
+/// capability-token gate. One `SecureEnclaveService` is shared across every
+/// connection, so a key from a `GENERATE` on one connection is signable by a
+/// `SIGN` on the next.
 public struct RequestRouter: Sendable {
     private let service: SecureEnclaveService
+    private let gate: AuthGate
 
-    public init(service: SecureEnclaveService) {
+    public init(service: SecureEnclaveService, gate: AuthGate) {
         self.service = service
+        self.gate = gate
     }
 
-    public func handle(_ request: Request) -> Response {
+    /// Validate the token, then dispatch. The gate runs before the operation is
+    /// interpreted, so a caller without the token learns nothing about the op
+    /// surface beyond the auth failure.
+    public func respond(toPayload payload: Data) -> Response {
+        guard let presented = (try? Wire.token(in: payload)).flatMap(CapabilityToken.init(bytes:)),
+              gate.accepts(presented)
+        else {
+            return .failure(code: OSStatusCode.authFailed, message: "invalid capability token")
+        }
+        do {
+            return handle(try Wire.decodeRequest(payload))
+        } catch {
+            return .failure(code: OSStatusCode.internalError, message: String(describing: error))
+        }
+    }
+
+    func handle(_ request: Request) -> Response {
         do {
             switch request {
             case .generate:
@@ -22,7 +48,7 @@ public struct RequestRouter: Sendable {
                 return .signed(signature: try service.sign(handle: handle, digest: digest))
             }
         } catch {
-            return .failure(String(describing: error))
+            return .failure(code: OSStatusCode.internalError, message: String(describing: error))
         }
     }
 }

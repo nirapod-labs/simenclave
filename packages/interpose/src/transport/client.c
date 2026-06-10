@@ -88,15 +88,42 @@ static se_status do_request(const uint8_t *payload, int payload_len, se_response
   return se_decode_response(response, (size_t)response_len, out);
 }
 
+static int hex_nibble(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return -1;
+}
+
+// Decode the 32-byte capability token from SIMENCLAVE_TOKEN (64 hex chars).
+// Returns 0 on success, -1 if the variable is missing or malformed.
+static int read_token(uint8_t out[32]) {
+  const char *hex = getenv("SIMENCLAVE_TOKEN");
+  if (!hex || strlen(hex) != 64) return -1;
+  for (size_t i = 0; i < 32; i++) {
+    int hi = hex_nibble(hex[i * 2]);
+    int lo = hex_nibble(hex[(i * 2) + 1]);
+    if (hi < 0 || lo < 0) return -1;
+    out[i] = (uint8_t)((hi << 4) | lo);
+  }
+  return 0;
+}
+
 se_status se_client_generate(se_response *out) {
-  uint8_t payload[16];
-  return do_request(payload, se_encode_generate(payload, sizeof(payload)), out);
+  uint8_t token[32];
+  if (read_token(token) != 0) return SE_ERR_TRUNCATED;
+  uint8_t payload[64];
+  return do_request(payload, se_encode_generate(token, sizeof(token), payload, sizeof(payload)),
+                    out);
 }
 
 se_status se_client_sign(const uint8_t *handle, size_t handle_len, const uint8_t *digest,
                          size_t digest_len, se_response *out) {
+  uint8_t token[32];
+  if (read_token(token) != 0) return SE_ERR_TRUNCATED;
   uint8_t payload[256];
-  return do_request(
-      payload, se_encode_sign(handle, handle_len, digest, digest_len, payload, sizeof(payload)),
-      out);
+  return do_request(payload,
+                    se_encode_sign(token, sizeof(token), handle, handle_len, digest, digest_len,
+                                   payload, sizeof(payload)),
+                    out);
 }

@@ -16,19 +16,23 @@ static int fails = 0;
 
 int main(void) {
   uint8_t buf[512];
+  uint8_t token[32];
+  memset(token, 0xAB, sizeof(token));
 
-  // GENERATE must equal the canonical bytes the Swift codec emits.
-  int n = se_encode_generate(buf, sizeof(buf));
-  uint8_t gen_expect[] = {0xA1, 0x00, 0x02};
-  CHECK(n == 3 && memcmp(buf, gen_expect, 3) == 0, "generate bytes");
+  // GENERATE { 0:2, 7:token } must equal the canonical bytes the Swift codec emits.
+  int n = se_encode_generate(token, sizeof(token), buf, sizeof(buf));
+  uint8_t gen_prefix[] = {0xA2, 0x00, 0x02, 0x07, 0x58, 0x20};
+  CHECK(n == 38 && memcmp(buf, gen_prefix, sizeof(gen_prefix)) == 0 &&
+            memcmp(buf + 6, token, 32) == 0,
+        "generate bytes");
 
-  // SIGN { 0:4, 2:handle(4), 4:digest(32) } in canonical form.
+  // SIGN { 0:4, 2:handle(4), 4:digest(32), 7:token(32) } in canonical form.
   uint8_t handle[4] = {0xAA, 0xAA, 0xAA, 0xAA};
   uint8_t digest[32];
   memset(digest, 0x5A, sizeof(digest));
-  n = se_encode_sign(handle, 4, digest, 32, buf, sizeof(buf));
-  uint8_t sign_prefix[] = {0xA3, 0x00, 0x04, 0x02, 0x44, 0xAA, 0xAA, 0xAA, 0xAA, 0x04, 0x58, 0x20};
-  CHECK(n == 44 && memcmp(buf, sign_prefix, sizeof(sign_prefix)) == 0, "sign bytes");
+  n = se_encode_sign(token, sizeof(token), handle, 4, digest, 32, buf, sizeof(buf));
+  uint8_t sign_prefix[] = {0xA4, 0x00, 0x04, 0x02, 0x44, 0xAA, 0xAA, 0xAA, 0xAA, 0x04, 0x58, 0x20};
+  CHECK(n == 79 && memcmp(buf, sign_prefix, sizeof(sign_prefix)) == 0, "sign bytes");
 
   // Decode a GENERATE-ok response.
   uint8_t gen_resp[] = {0xA4, 0x00, 0x02, 0x01, 0x00, 0x02, 0x44, 1, 2,
@@ -47,6 +51,13 @@ int main(void) {
   uint8_t err_resp[] = {0xA3, 0x00, 0x02, 0x01, 0x01, 0x06, 0x62, 'n', 'o'};
   CHECK(se_decode_response(err_resp, sizeof(err_resp), &resp) == SE_OK, "decode error rc");
   CHECK(resp.kind == SE_RESP_ERROR && strcmp(resp.error, "no") == 0, "error field");
+
+  // An error response with a negative OSStatus in key 10 decodes: the code is
+  // accepted (CBOR major 1) and the reason still reads.
+  uint8_t err_code[] = {0xA4, 0x00, 0x02, 0x01, 0x01, 0x06, 0x62, 'n', 'o', 0x0A, 0x39, 0x62, 0xCC};
+  CHECK(se_decode_response(err_code, sizeof(err_code), &resp) == SE_OK &&
+            resp.kind == SE_RESP_ERROR && strcmp(resp.error, "no") == 0,
+        "decode error with osstatus");
 
   // Framing.
   uint8_t framed[8];

@@ -7,7 +7,7 @@ import Security
 /// The per-session capability token: 32 random bytes that gate every request to
 /// the helper (see docs/design/m1-helper.md). The bytes are the credential; the
 /// hex form, in the token file and the scheme environment, is only transport.
-public struct CapabilityToken: Equatable {
+public struct CapabilityToken: Equatable, Sendable {
     public static let byteCount = 32
     public let bytes: Data
 
@@ -50,7 +50,7 @@ public struct CapabilityToken: Equatable {
 /// Validates a presented token against the session token. The comparison is
 /// constant time over the fixed 32 bytes: it never branches on the contents, so
 /// it leaks nothing through timing about where two tokens diverge.
-public struct AuthGate {
+public struct AuthGate: Sendable {
     private let session: CapabilityToken
 
     public init(session: CapabilityToken) {

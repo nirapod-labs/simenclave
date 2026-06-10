@@ -6,10 +6,11 @@ import SimEnclaveHostCore
 import Darwin
 #endif
 
-// The M0 helper: own a Secure Enclave key and answer GENERATE and SIGN over
-// loopback. It prints one JSON readiness line with the bound port so a caller
-// (the interposer, a test, or simenclavectl) can discover where to connect, then
-// serves until killed. A signed menubar app and a capability token are M1.
+// The M1 helper: own a Secure Enclave key and answer GENERATE and SIGN over an
+// authenticated loopback channel. It mints a per-session capability token, writes
+// it to a 0600 file (TokenFile), and gates every request on it. It prints one
+// JSON readiness line with the bound port so a caller can discover where to
+// connect, then serves until killed. The token is never printed.
 
 let service = SecureEnclaveService()
 guard service.isAvailable else {
@@ -17,7 +18,15 @@ guard service.isAvailable else {
     exit(3)
 }
 
-let listener = LoopbackListener(router: RequestRouter(service: service))
+let token = CapabilityToken()
+do {
+    try TokenFile.write(token, toDirectory: TokenFile.defaultDirectory())
+} catch {
+    FileHandle.standardError.write(Data("simenclave-helper: token file: \(error)\n".utf8))
+    exit(1)
+}
+
+let listener = LoopbackListener(router: RequestRouter(service: service, gate: AuthGate(session: token)))
 do {
     let requested = ProcessInfo.processInfo.environment["SIMENCLAVE_PORT"].flatMap { UInt16($0) } ?? 0
     try listener.start(port: requested)
