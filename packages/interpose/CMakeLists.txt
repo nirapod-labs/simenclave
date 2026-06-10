@@ -37,4 +37,10 @@ else()
   add_executable(hook_smoke tests/hook_smoke.c)
   target_link_libraries(hook_smoke PRIVATE dobby_bundle ${SE_FRAMEWORKS})
   add_test(NAME hook_smoke COMMAND hook_smoke)
+
+  # The passthrough invariant: a non-SE keychain call is byte-identical with the
+  # hooks installed. No helper, so it runs as a plain ctest.
+  add_executable(passthrough_test tests/passthrough_test.c)
+  target_link_libraries(passthrough_test PRIVATE interpose_core ${SE_FRAMEWORKS})
+  add_test(NAME passthrough COMMAND passthrough_test)
 endif()
