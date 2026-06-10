@@ -80,7 +80,7 @@ Status: not started. Target: 2026-07-10 to 07-16. Design: `docs/design/m3-fideli
 
 - [ ] Biometry-gated keys: the interposer captures the access control at its source (it hooks `SecAccessControlCreateWithFlags`, since the `SecAccessControlRef` is opaque) and relays it, and the helper brings itself foreground and runs `LAContext`, so a biometric sign raises a real Mac Touch ID prompt
 - [ ] Error parity: the helper classifies its macOS failure and maps it to the exact `(domain, code)` a device returns, from a committed device-reference table, so `do/catch` written for the device behaves the same here
-- [ ] Persistence across relaunches via permanent, namespaced keychain keys and a `FIND_BY_TAG` lookup, so a known fixture key is still there next run, with keychain confinement (the helper never touches a key that is not its own) and per-UDID namespacing for hygiene, not as a security boundary
+- [ ] In-session persistence already holds (a fixture key survives a simulator-app relaunch while the helper runs). Durable across-restart persistence is deferred to M5: a spike proved a permanent Secure Enclave keychain key needs a signed, provisioned helper, which is the Developer ID work M5 owns. The `FIND_BY_TAG` op and the namespaced-key, access-group-confinement design are in place as groundwork
 - [ ] The secondary hooks that keep the shadow ref honest: `SecKeyCopyExternalRepresentation` returns the not-exportable error a real SE key does, and `SecKeyCopyAttributes` reports the SE token and the private key class
 - [ ] The menubar's per-app approval prompt, keyed on an app id the interposer reports, foreground GUI that pairs with the biometric prompt here (moved from M2; a convenience, not an access boundary)
 
@@ -105,6 +105,7 @@ Done when parity is green on both a real device and the sim, the fence is green 
 Status: not started. Target: 2026-07-24 to 07-30.
 
 - [ ] Developer ID signing and notarization for the helper, stapled
+- [ ] Durable across-restart persistence, now that the helper is signed: permanent, namespaced Secure Enclave keychain keys behind the entitlement, `FIND_BY_TAG` over the keychain (the op and the confinement design landed in M3), startup enumeration scoped by the access group, and a scoped purge. Deferred here from M3 because a permanent SE keychain key needs the provisioning identity this milestone provides
 - [ ] A Homebrew cask (or a tap) and a GitHub release carrying the helper and the dylib
 - [ ] The `simenclavectl` agent CLI: `doctor`, `init`, `keys`, `sign`, `parity`, `token`, `status`, all JSON with real exit codes
 - [ ] Docs: how to integrate (use the `SecKey` C API, set the scheme env), install, the protocol, the security model, troubleshooting
