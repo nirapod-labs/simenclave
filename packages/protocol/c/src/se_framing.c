@@ -30,8 +30,10 @@ int se_frame(const uint8_t *payload, size_t len, uint8_t *out, size_t cap) {
 }
 
 long se_payload_length(const uint8_t prefix[4]) {
-  long len =
-      ((long)prefix[0] << 24) | ((long)prefix[1] << 16) | ((long)prefix[2] << 8) | (long)prefix[3];
+  // Unsigned assembly: a signed shift of prefix[0] >= 0x80 would be negative on
+  // a 32-bit long. Apple targets are 64-bit, but the codec stays width-clean.
+  uint32_t len = ((uint32_t)prefix[0] << 24) | ((uint32_t)prefix[1] << 16) |
+                 ((uint32_t)prefix[2] << 8) | (uint32_t)prefix[3];
   if (len > SE_MAX_FRAME) return -1;
-  return len;
+  return (long)len;
 }

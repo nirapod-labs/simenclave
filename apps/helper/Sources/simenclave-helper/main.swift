@@ -22,11 +22,29 @@ guard service.isAvailable else {
 }
 
 let token = CapabilityToken()
+let tokenDirectory = TokenFile.defaultDirectory()
 do {
-    try TokenFile.write(token, toDirectory: TokenFile.defaultDirectory())
+    try TokenFile.write(token, toDirectory: tokenDirectory)
 } catch {
     FileHandle.standardError.write(Data("simenclave-helper: token file: \(error)\n".utf8))
     exit(1)
+}
+
+// The session credential dies with the session: remove the token file on SIGINT
+// and SIGTERM (the ways a CLI helper is normally stopped) and on a normal exit,
+// the same hygiene the menubar's stop and quit paths have. A SIGKILL leaves the
+// file; the next start then refuses loudly with the stale path, never truncates.
+atexit { TokenFile.remove(fromDirectory: TokenFile.defaultDirectory()) }
+let terminationSignals: [Int32] = [SIGINT, SIGTERM]
+let signalSources: [DispatchSourceSignal] = terminationSignals.map { number in
+    signal(number, SIG_IGN)
+    let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
+    source.setEventHandler {
+        TokenFile.remove(fromDirectory: tokenDirectory)
+        exit(0)
+    }
+    source.resume()
+    return source
 }
 
 let listener = LoopbackListener(router: RequestRouter(service: service, gate: AuthGate(session: token)))

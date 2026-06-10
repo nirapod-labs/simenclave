@@ -180,6 +180,13 @@ int main(void) {
   uint8_t trailing[] = {0xA1, 0x00, 0x02, 0xFF};
   CHECK(se_decode_response(trailing, sizeof(trailing), &resp) != SE_OK, "reject trailing bytes");
 
+  // Hardening (M4 security review): a hostile 64-bit byte-string length must be
+  // rejected as truncated; the additive bound r->off + va would wrap and pass.
+  // map(1) { 2: bytes(len 2^64 - 1) } with no bytes following.
+  uint8_t wrap_len[] = {0xA1, 0x02, 0x5B, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  CHECK(se_decode_response(wrap_len, sizeof(wrap_len), &resp) == SE_ERR_TRUNCATED,
+        "reject wrapping length");
+
   printf(fails ? "C CODEC: %d failure(s)\n" : "C CODEC: ok\n", fails);
   return fails ? 1 : 0;
 }

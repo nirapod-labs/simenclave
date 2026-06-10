@@ -88,7 +88,7 @@ struct CBORReader {
     mutating func mapHeader() throws -> Int {
         let head = try byte()
         guard head >> 5 == 5 else { throw ProtocolError.typeMismatch }
-        return Int(try argument(head & 0x1F))
+        return try lengthArgument(head & 0x1F)
     }
 
     mutating func uint() throws -> UInt64 {
@@ -108,9 +108,9 @@ struct CBORReader {
         case 1:
             return .negInt(try argument(additional))
         case 2:
-            return .bytes(try take(Int(try argument(additional))))
+            return .bytes(try take(lengthArgument(additional)))
         case 3:
-            return .text(String(decoding: try take(Int(try argument(additional))), as: UTF8.self))
+            return .text(String(decoding: try take(lengthArgument(additional)), as: UTF8.self))
         default:
             throw ProtocolError.typeMismatch
         }
@@ -124,11 +124,20 @@ struct CBORReader {
     }
 
     private mutating func take(_ count: Int) throws -> Data {
-        guard count >= 0, offset + count <= data.count else { throw ProtocolError.truncated }
+        guard count >= 0, count <= data.count - offset else { throw ProtocolError.truncated }
         let start = data.startIndex + offset
         let slice = data[start ..< start + count]
         offset += count
         return Data(slice)
+    }
+
+    /// Decode a length or count argument and bound it by the remaining input
+    /// before any `Int` conversion. A hostile 64-bit length must throw, never
+    /// trap: this runs on unauthenticated bytes, before the token gate.
+    private mutating func lengthArgument(_ additional: UInt8) throws -> Int {
+        let value = try argument(additional)
+        guard value <= UInt64(data.count - offset) else { throw ProtocolError.truncated }
+        return Int(value)
     }
 
     /// Decode the argument that follows a head byte. Indefinite length and the
@@ -201,10 +210,17 @@ struct CBORMap {
         return nil
     }
 
+    /// A signed integer. Values outside `Int64` throw rather than trap: the
+    /// bytes are unauthenticated, so an oversized argument is hostile input,
+    /// not a programming error.
     func int(_ key: UInt64) throws -> Int64 {
         switch entries[key] {
-        case let .uint(value)?: return Int64(value)
-        case let .negInt(argument)?: return -1 - Int64(argument)
+        case let .uint(value)?:
+            guard value <= UInt64(Int64.max) else { throw ProtocolError.malformed }
+            return Int64(value)
+        case let .negInt(argument)?:
+            guard argument <= UInt64(Int64.max) else { throw ProtocolError.malformed }
+            return -1 - Int64(argument)
         default: throw ProtocolError.missingField(key)
         }
     }

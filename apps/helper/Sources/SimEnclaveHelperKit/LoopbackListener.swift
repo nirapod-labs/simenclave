@@ -59,16 +59,22 @@ public final class LoopbackListener: @unchecked Sendable {
         guard bound == 0 else { close(fd); throw SocketError.system("bind: \(errnoText())") }
         guard listen(fd, 16) == 0 else { close(fd); throw SocketError.system("listen: \(errnoText())") }
 
-        lifecycleLock.lock()
-        port = boundPort(fd)
-        listenFD = fd
-        running = true
-        lifecycleLock.unlock()
-
         let worker = Thread { [weak self] in self?.acceptLoop() }
         worker.stackSize = 1 << 20
         worker.name = "simenclave.loopback"
+
+        lifecycleLock.lock()
+        guard !running else {
+            lifecycleLock.unlock()
+            close(fd)
+            throw SocketError.system("already started")
+        }
+        port = boundPort(fd)
+        listenFD = fd
+        running = true
         self.worker = worker
+        lifecycleLock.unlock()
+
         worker.start()
     }
 
@@ -105,12 +111,20 @@ public final class LoopbackListener: @unchecked Sendable {
                 if isRunning() { continue }
                 break
             }
+            // A receive and send deadline on every accepted connection, so a peer that
+            // connects and stalls cannot park a serve thread forever: a stalled-client
+            // flood would otherwise exhaust threads (M4 security review). A timed-out
+            // recv surfaces as a SocketError and serve drops the connection. 30 seconds
+            // leaves room for a human at a biometric prompt on another request; reads on
+            // this connection have no human in the loop.
+            var deadline = timeval(tv_sec: 30, tv_usec: 0)
+            setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &deadline, socklen_t(MemoryLayout<timeval>.size))
+            setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &deadline, socklen_t(MemoryLayout<timeval>.size))
             // Serve each connection on its own thread, so a biometry sign that parks on a
             // human prompt blocks only its connection: the accept loop keeps accepting and
             // a silent sign on another connection keeps moving. The handle store is
-            // lock-guarded and the SEP serializes, so concurrent serves are safe. Threads
-            // are unbounded by design: the dev threat model is same-user loopback with a
-            // handful of connections. Close the fd even if the listener is already gone.
+            // lock-guarded and the SEP serializes, so concurrent serves are safe. Close
+            // the fd even if the listener is already gone.
             let connection = Thread { [weak self] in
                 guard let self else {
                     close(client)
