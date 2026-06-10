@@ -4,16 +4,22 @@ import XCTest
 
 final class WireTests: XCTestCase {
     func testGenerateRequestRoundTrips() throws {
-        let payload = Wire.encode(.generate)
-        XCTAssertEqual(payload, Data([0xA1, 0x00, 0x02]))
+        let token = Data(repeating: 0xAB, count: 32)
+        let payload = Wire.encode(.generate, token: token)
+        // map(2) { 0: 2, 7: bstr(32) }
+        XCTAssertEqual(payload.prefix(6), Data([0xA2, 0x00, 0x02, 0x07, 0x58, 0x20]))
         XCTAssertEqual(try Wire.decodeRequest(payload), .generate)
+        XCTAssertEqual(try Wire.token(in: payload), token)
     }
 
     func testSignRequestRoundTrips() throws {
         let handle = Data((0 ..< 16).map { UInt8($0) })
         let digest = Data(repeating: 0x5A, count: 32)
+        let token = Data(repeating: 0xCD, count: 32)
         let request = Request.sign(handle: handle, digest: digest)
-        XCTAssertEqual(try Wire.decodeRequest(Wire.encode(request)), request)
+        let payload = Wire.encode(request, token: token)
+        XCTAssertEqual(try Wire.decodeRequest(payload), request)
+        XCTAssertEqual(try Wire.token(in: payload), token)
     }
 
     func testGeneratedResponseRoundTrips() throws {
@@ -29,7 +35,7 @@ final class WireTests: XCTestCase {
     }
 
     func testFailureResponseRoundTrips() throws {
-        let response = Response.failure("no secure enclave on this host")
+        let response = Response.failure(code: -25293, message: "invalid capability token")
         XCTAssertEqual(try Wire.decodeResponse(Wire.encode(response)), response)
     }
 

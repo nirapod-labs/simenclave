@@ -10,7 +10,7 @@ public enum Request: Equatable {
 public enum Response: Equatable {
     case generated(handle: Data, publicKey: Data)
     case signed(signature: Data)
-    case failure(String)
+    case failure(code: Int64, message: String)
 }
 
 /// The version-1 message codec: a CBOR map in and out (see `SPEC.md`). Socket
@@ -28,20 +28,32 @@ public enum Wire {
     static let keyDigest: UInt64 = 4
     static let keySignature: UInt64 = 5
     static let keyError: UInt64 = 6
+    static let keyToken: UInt64 = 7
+    static let keyErrorCode: UInt64 = 10
 
-    public static func encode(_ request: Request) -> Data {
+    /// Encode a request, carrying the capability token in key 7. The token rides
+    /// every request; the helper validates it before interpreting the op.
+    public static func encode(_ request: Request, token: Data) -> Data {
         var writer = CBORWriter()
         switch request {
         case .generate:
-            writer.mapHeader(1)
+            writer.mapHeader(2)
             writer.uint(keyOp); writer.uint(opGenerate)
+            writer.uint(keyToken); writer.bytes(token)
         case let .sign(handle, digest):
-            writer.mapHeader(3)
+            writer.mapHeader(4)
             writer.uint(keyOp); writer.uint(opSign)
             writer.uint(keyHandle); writer.bytes(handle)
             writer.uint(keyDigest); writer.bytes(digest)
+            writer.uint(keyToken); writer.bytes(token)
         }
         return writer.data
+    }
+
+    /// The capability token from a request, key 7. Read before the op so the
+    /// AuthGate can reject without interpreting the operation.
+    public static func token(in payload: Data) throws -> Data {
+        try CBORMap(decoding: payload).bytes(keyToken)
     }
 
     public static func decodeRequest(_ payload: Data) throws -> Request {
@@ -70,11 +82,12 @@ public enum Wire {
             writer.uint(keyOp); writer.uint(opSign)
             writer.uint(keyStatus); writer.uint(statusOK)
             writer.uint(keySignature); writer.bytes(signature)
-        case let .failure(message):
-            writer.mapHeader(3)
+        case let .failure(code, message):
+            writer.mapHeader(4)
             writer.uint(keyOp); writer.uint(opGenerate)
             writer.uint(keyStatus); writer.uint(statusError)
             writer.uint(keyError); writer.text(message)
+            writer.uint(keyErrorCode); writer.int(code)
         }
         return writer.data
     }
@@ -83,7 +96,7 @@ public enum Wire {
         let map = try CBORMap(decoding: payload)
         let status = try map.uint(keyStatus)
         if status == statusError {
-            return .failure(try map.text(keyError))
+            return .failure(code: try map.int(keyErrorCode), message: try map.text(keyError))
         }
         guard status == statusOK else { throw ProtocolError.badStatus(status) }
         switch try map.uint(keyOp) {

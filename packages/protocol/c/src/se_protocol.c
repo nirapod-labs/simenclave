@@ -6,11 +6,20 @@
 #include <string.h>
 
 // keys
-enum { K_OP = 0, K_STATUS = 1, K_HANDLE = 2, K_PUBKEY = 3, K_DIGEST = 4, K_SIG = 5, K_ERR = 6 };
+enum {
+  K_OP = 0,
+  K_STATUS = 1,
+  K_HANDLE = 2,
+  K_PUBKEY = 3,
+  K_DIGEST = 4,
+  K_SIG = 5,
+  K_ERR = 6,
+  K_TOKEN = 7,
+};
 // ops and status
 enum { OP_GENERATE = 2, OP_SIGN = 4, ST_OK = 0, ST_ERROR = 1 };
-// CBOR major types (RFC 8949 3.1): unsigned int, byte string, text string, map
-enum { CBOR_UINT = 0, CBOR_BYTES = 2, CBOR_TEXT = 3, CBOR_MAP = 5 };
+// CBOR major types (RFC 8949 3.1): uint, negative int, byte string, text, map
+enum { CBOR_UINT = 0, CBOR_NEGINT = 1, CBOR_BYTES = 2, CBOR_TEXT = 3, CBOR_MAP = 5 };
 
 typedef struct {
   uint8_t *buf;
@@ -61,24 +70,28 @@ static void w_bytes(writer *w, uint8_t major, const uint8_t *data, size_t len) {
   w->pos += len;
 }
 
-int se_encode_generate(uint8_t *out, size_t cap) {
+int se_encode_generate(const uint8_t *token, size_t token_len, uint8_t *out, size_t cap) {
   writer w = {out, cap, 0, 0};
-  w_head(&w, CBOR_MAP, 1); // map(1)
+  w_head(&w, CBOR_MAP, 2); // map(2)
   w_head(&w, CBOR_UINT, K_OP);
   w_head(&w, CBOR_UINT, OP_GENERATE);
+  w_head(&w, CBOR_UINT, K_TOKEN);
+  w_bytes(&w, CBOR_BYTES, token, token_len);
   return w.overflow ? -1 : (int)w.pos;
 }
 
-int se_encode_sign(const uint8_t *handle, size_t handle_len, const uint8_t *digest,
-                   size_t digest_len, uint8_t *out, size_t cap) {
+int se_encode_sign(const uint8_t *token, size_t token_len, const uint8_t *handle, size_t handle_len,
+                   const uint8_t *digest, size_t digest_len, uint8_t *out, size_t cap) {
   writer w = {out, cap, 0, 0};
-  w_head(&w, CBOR_MAP, 3); // map(3)
+  w_head(&w, CBOR_MAP, 4); // map(4)
   w_head(&w, CBOR_UINT, K_OP);
   w_head(&w, CBOR_UINT, OP_SIGN);
   w_head(&w, CBOR_UINT, K_HANDLE);
   w_bytes(&w, CBOR_BYTES, handle, handle_len);
   w_head(&w, CBOR_UINT, K_DIGEST);
   w_bytes(&w, CBOR_BYTES, digest, digest_len);
+  w_head(&w, CBOR_UINT, K_TOKEN);
+  w_bytes(&w, CBOR_BYTES, token, token_len);
   return w.overflow ? -1 : (int)w.pos;
 }
 
@@ -154,7 +167,7 @@ static se_status r_map(reader *r, entry *entries, size_t max, size_t *count) {
     entry *e = &entries[i];
     e->key = kv;
     e->major = vm;
-    if (vm == CBOR_UINT) {
+    if (vm == CBOR_UINT || vm == CBOR_NEGINT) {
       e->uintval = va;
       e->span = NULL;
       e->span_len = 0;

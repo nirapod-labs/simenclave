@@ -40,13 +40,14 @@ typedef struct {
   char error[256];
 } se_response;
 
-// Encode a GENERATE request payload (CBOR, no frame). Returns bytes written, or
-// -1 if the buffer is too small.
-int se_encode_generate(uint8_t *out, size_t cap);
+// Encode a GENERATE request payload (CBOR, no frame), carrying the capability
+// token. Returns bytes written, or -1 if the buffer is too small.
+int se_encode_generate(const uint8_t *token, size_t token_len, uint8_t *out, size_t cap);
 
-// Encode a SIGN request payload carrying the handle and a 32-byte digest.
-int se_encode_sign(const uint8_t *handle, size_t handle_len, const uint8_t *digest,
-                   size_t digest_len, uint8_t *out, size_t cap);
+// Encode a SIGN request payload carrying the token, the handle, and a 32-byte
+// digest.
+int se_encode_sign(const uint8_t *token, size_t token_len, const uint8_t *handle, size_t handle_len,
+                   const uint8_t *digest, size_t digest_len, uint8_t *out, size_t cap);
 
 // Decode a response payload into out, dispatching on op and status.
 se_status se_decode_response(const uint8_t *payload, size_t len, se_response *out);

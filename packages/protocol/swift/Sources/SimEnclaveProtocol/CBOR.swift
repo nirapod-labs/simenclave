@@ -6,6 +6,7 @@ import Foundation
 /// small and both ends, this codec and the C one, must agree byte for byte.
 enum CBORValue: Equatable {
     case uint(UInt64)
+    case negInt(UInt64)
     case bytes(Data)
     case text(String)
 }
@@ -15,6 +16,16 @@ struct CBORWriter {
 
     mutating func mapHeader(_ count: Int) { writeHead(major: 5, value: UInt64(count)) }
     mutating func uint(_ value: UInt64) { writeHead(major: 0, value: value) }
+
+    /// A signed integer: major 0 for non-negative, major 1 for negative, where
+    /// the negative `n` is encoded as the argument `-1 - n` (RFC 8949).
+    mutating func int(_ value: Int64) {
+        if value >= 0 {
+            writeHead(major: 0, value: UInt64(value))
+        } else {
+            writeHead(major: 1, value: UInt64(-1 - value))
+        }
+    }
 
     mutating func bytes(_ value: Data) {
         writeHead(major: 2, value: UInt64(value.count))
@@ -91,6 +102,8 @@ struct CBORReader {
         switch major {
         case 0:
             return .uint(try argument(additional))
+        case 1:
+            return .negInt(try argument(additional))
         case 2:
             return .bytes(try take(Int(try argument(additional))))
         case 3:
@@ -171,6 +184,14 @@ struct CBORMap {
     func uint(_ key: UInt64) throws -> UInt64 {
         guard case let .uint(value)? = entries[key] else { throw ProtocolError.missingField(key) }
         return value
+    }
+
+    func int(_ key: UInt64) throws -> Int64 {
+        switch entries[key] {
+        case let .uint(value)?: return Int64(value)
+        case let .negInt(argument)?: return -1 - Int64(argument)
+        default: throw ProtocolError.missingField(key)
+        }
     }
 
     func bytes(_ key: UInt64) throws -> Data {
