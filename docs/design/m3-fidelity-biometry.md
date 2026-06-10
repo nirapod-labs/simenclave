@@ -70,13 +70,27 @@ the ref is **opaque**: there is no public API to read its flags back, and
 `SecAccessControlGetConstraints` is SPI this tool will not touch.
 
 So the interposer catches the policy at its source. **M3 hooks
-`SecAccessControlCreateWithFlags`** and records the `(protection, flags)` pair keyed
-by the `SecAccessControlRef` it returns, in a small side table with the same
-pointer-identity model the shadow registry uses. There is no other public constructor
-for the ref an app passes to a key creation, so hooking the one constructor catches
-the policy of every key the bridge will route. At `SecKeyCreateRandomKey` time, the
-hook reads the `kSecAttrAccessControl`, looks up its captured `(protection, flags)`,
-and now knows what the app asked for.
+`SecAccessControlCreateWithFlags`** and records the `(protection, flags)` pair keyed by
+the `SecAccessControlRef` it returns. There is no other public constructor for the ref
+an app passes to a key creation, so hooking the one constructor catches the policy of
+every key the bridge will route. At `SecKeyCreateRandomKey` time, the hook reads the
+`kSecAttrAccessControl`, looks up its captured `(protection, flags)`, and now knows what
+the app asked for.
+
+The side table is keyed on pointer identity like the shadow registry, but its lifecycle
+is the opposite and has to be designed as such, not inherited. A shadow is a long-lived
+object the registry owns until an explicit `SecItemDelete`, so retain-until-delete fits.
+A `SecAccessControlRef` is transient: the app creates it, passes it into one or more key
+creations, and drops it, and there is no delete event to hang eviction on. So the table
+**retains on capture**, which alone closes the registry's address-reuse hazard and the
+capture-to-create TOCTOU in one stroke: while the table holds a reference the object
+cannot be freed and its address cannot be recycled, so a later lookup can never read a
+stale policy under a reused pointer. It bounds itself with **a small LRU cap**, releasing
+the oldest entry when full. It does not consume-on-create, because an app may reuse one
+access control across several keys; it leans on the LRU bound, not a delete, to stay
+finite. An access control the table never captured, created before the hooks installed,
+say, is a lookup miss, and a miss passes through as not-an-SE-policy, toward the existing
+silent path.
 
 The hook does two things with the captured policy, and the split matters.
 
@@ -85,15 +99,23 @@ sign time exactly when its flags carry a biometric or user-presence constraint. 
 single bit, biometry versus silent, sets the existing wire key `9`, and it is the
 only interpretation the interposer performs.
 
-**It relays the rest faithfully.** The raw `flags` value and the `protection`
-constant are forwarded to the helper verbatim (new wire keys `11` and `12`), and the
-helper passes the same bits to its own `SecAccessControlCreateWithFlags`. The
-interposer does not translate a flag set into its idea of an equivalent one; it
-relays the bits, the way it relays a signature's bytes, because the flags are an ABI
-the OS defines and the bridge has no business reinterpreting. Let $f$ be the flags the
-app passed and $A_{\text{mac}}$ the access control the helper builds. Then
-$A_{\text{mac}} = \text{flags}^{-1}(f)$, so the gate the SEP enforces on the Mac is
-the gate the app requested, bit for bit.
+**It relays the rest faithfully.** The raw `flags` value (key `11`, a `uint`) and the
+`protection` constant (key `12`, relayed verbatim as the constant's own string, not
+through an interposer-side enum that could drop or remap a value) are forwarded to the
+helper, which passes them straight to its own `SecAccessControlCreateWithFlags`. The
+interposer does not translate a flag set into its idea of an equivalent one; it relays
+the bits the way it relays a signature's bytes. This is a real change to the helper:
+`SecureEnclaveService.generate` takes a `Bool` today and hardcodes both the flags and
+the protection class, so M3 grows it to accept the relayed flags and protection and
+build the access control from them. Let $f$ be the flags the app passed and
+$A_{\text{mac}}$ the access control the helper builds; the intent is
+$A_{\text{mac}} = \text{flags}^{-1}(f)$, the gate the SEP enforces on the Mac being the
+gate the app requested. One step of that is empirical, not proven, and so a **spike**:
+that the host's `SecAccessControlCreateWithFlags` accepts the guest's raw flag bits
+across the iOS-to-macOS boundary and **rejects** an unsupported bit rather than silently
+dropping it. The `SecAccessControlCreateFlags` values are a documented ABI, but a few
+constraints may be invalid or mean something different on macOS, so the helper fails
+closed on a flag set the host rejects rather than building a weaker gate than was asked.
 
 There is one fidelity boundary this cannot cross, and the design names it rather than
 hiding it. A `.biometryCurrentSet` key on a device binds to *that device's* enrolled
@@ -112,65 +134,74 @@ So the prompt is a property of the `SIGN` path, and the helper has to grow one.
 
 The shape of a faithful prompt is: the developer signs in the simulated app, a Mac
 Touch ID sheet appears naming the app that asked, the developer authenticates, and the
-signature comes back, or a cancel comes back as the device's cancel error. Three
-mechanisms have to come together for that, and each is a change to the helper.
+signature comes back, or a cancel comes back as the device's cancel error. Getting there
+means settling where the prompt runs, then how the signing key binds to it.
 
-**Foreground.** The helper is an accessory app with no dock icon. A Touch ID sheet
-from a background accessory is at best unattributed and at worst does not present, so
-before a biometric prompt the helper brings itself foreground
-(`NSApp.activate`) and runs the prompt on the main thread, where
-LocalAuthentication's UI belongs.
+**The prompt needs an AppKit host, so it is a menubar-helper capability.** The helper
+ships as two deployables built from one kit: `simenclave-menubar`, which creates an
+`NSApplication`, takes the `.accessory` policy, and runs `app.run()`; and the CLI
+`simenclave-helper`, which has no AppKit and ends in `RunLoop.current.run()`.
+`NSApp.activate` and a `LAContext` sheet need the AppKit run loop, so they belong to the
+menubar build; calling them from the bare-`RunLoop` CLI is a no-op at best. So M3 does
+not pretend "the helper" is one thing. It puts foreground presentation behind a seam:
+the menubar build installs a presenter that activates the app and runs the prompt on the
+AppKit main thread; the CLI helper installs none and answers a biometry sign with a
+clear error, so biometry is a menubar-helper capability and the CLI helper serves silent
+keys, which is what headless tests and CI drive. Tests inject a mock presenter that
+returns approve, deny, or cancel on demand, so the router's prompt logic runs
+deterministically without a real sheet.
 
-**A named context.** The helper creates a fresh `LAContext` per biometric sign, sets
-its `localizedReason` to name the connecting app ("Simulator app *id* is signing with
-the Secure Enclave"), and binds the signing key to that context. The app name comes
-from the interposer (the same app id the approval prompt uses, wire key `14`), because
-only the guest can name itself over a loopback socket.
+**The signing key binds to a fresh, named context.** Each biometric sign builds a new
+`LAContext` whose `localizedReason` names the connecting app ("Simulator app *id* is
+signing with the Secure Enclave"), the name coming from the interposer (wire key `14`),
+because only the guest can name itself over a loopback socket. The binding is a
+**spike**, not an assumption, on the M2 CryptoKit lesson, and two mechanisms are on the
+table for it to pick between: `LAContext.evaluateAccessControl` to pre-authorize the
+in-memory key the helper already holds, which needs no keychain round trip; or a re-fetch
+of the permanent key with `kSecUseAuthenticationContext` set to the context. Persistence
+lands before this slice, so either is available; the spike also confirms whether the
+prompt fires at evaluate, fetch, or sign, whether `localizedReason` carries through, and
+whether the accessory app presents the sheet cleanly, against the menubar build that will
+actually serve prompts. A silent key skips all of this and signs as it does today.
 
-**The bind path.** Persistence and biometry compose here, and that is the design
-insight that orders the slices. Because an M3 SE key is permanent in the keychain, the
-helper binds the prompt by re-fetching the key with the context:
-`SecItemCopyMatching` with `kSecUseAuthenticationContext` set to the fresh `LAContext`
-returns a `SecKeyRef` bound to it, and the subsequent `SecKeyCreateSignature` prompts
-with that context's reason. A silent key skips all of this and signs as it does today.
-
-The exact API path is a **spike**, not an assumption. M2's CryptoKit finding is the
-standing lesson: the design states the intended mechanism (foreground, a fresh named
-`LAContext`, bind by context-scoped fetch), and a small spike confirms whether the
-prompt fires at fetch or at sign, whether `localizedReason` carries through, and
-whether an accessory app presents the sheet cleanly, before the slice's behavior is
-trusted. What the spike finds is captured the way the CryptoKit probe was.
-
-The threading model is the other half. The router is synchronous on a per-connection
-socket thread today, which is correct for the microsecond silent path and wrong for a
-prompt that blocks on a human. So a biometric sign:
+**Serving has to be concurrent, or one prompt freezes the whole helper.** Here is the
+trap, and it is in today's code, not the future. The helper's accept loop is a single
+thread running `while running { accept(); serve(client) }`, and `serve` handles its
+connection synchronously. If a biometry `serve` parks waiting on a human, the accept
+loop is *inside* that call and cannot accept the next connection at all, so a concurrent
+silent sign is not merely unprompted, it is stalled at the TCP accept queue behind the
+human, on the same one thread. "Silent stays fast" is false until serving is concurrent.
+So M3 makes the accept loop hand each accepted connection to its own worker and
+immediately loop to accept the next; the handle store is already lock-guarded and the
+SEP serializes its own work, so concurrent serves are safe. The invariant to state is
+connection-level: *a biometry sign blocks only its own connection, and silent signs on
+other connections proceed at M2 latency*. With that, a biometric sign looks like:
 
 ```mermaid
 sequenceDiagram
     participant App as Simulated app
     participant Hook as Interposer hook
-    participant Sock as Helper socket thread
-    participant Main as Helper main thread
+    participant Sock as Per-connection worker
+    participant Main as Menubar main thread (AppKit)
     participant SEP as Mac SEP + Touch ID
 
     App->>Hook: SecKeyCreateSignature(shadow, digest)
     Hook->>Sock: SIGN(handle, digest, app id)
     Sock->>Main: dispatch (biometry key), wait on semaphore
-    Main->>Main: NSApp.activate, fresh LAContext(reason names app)
-    Main->>SEP: fetch key bound to context, sign
+    Main->>Main: presenter activates app, fresh LAContext(reason names app)
+    Main->>SEP: bind context (evaluate or fetch), sign
     SEP-->>Main: signature, or cancel/fail error
     Main-->>Sock: signal semaphore with result
     Sock-->>Hook: SIGNED(signature) or ERROR(domain, code)
     Hook-->>App: DER signature, or faithful CFError
 ```
 
-The socket thread hands a biometry sign to the main thread and blocks on a semaphore,
-preserving the one-request-per-connection wire model while the human is in the loop.
-Two more rules keep it honest. **Prompts serialize**: at most one foreground
-interaction is in flight at a time, through a single prompt actor, so two concurrent
-biometry signs do not race two sheets; the second waits. And **a silent sign never
-touches the main thread or the foreground**, so the common path keeps M2's latency and
-the bridge does not steal focus for a key that did not ask for a prompt.
+The worker blocks on the semaphore while the main thread runs the prompt, but only that
+worker; the accept loop has already moved on to the next connection. Two rules keep it
+honest. **Prompts serialize** through one presenter, so two biometry signs do not race
+two sheets, the second waits its turn. And **a silent sign never reaches the presenter,
+the main thread, or the foreground**, so the common path keeps M2's latency and the
+bridge does not steal focus for a key that did not ask for a prompt.
 
 ## Faithful failures: the OSStatus parity table
 
@@ -199,11 +230,19 @@ flagged `device-confirm`; those flags must clear before M4 signs off the parity 
 because M4 is where parity is the release criterion.
 
 The wire grows to carry a faithful error. M2's key `10` already carries an `OSStatus`;
-M3 adds key `13`, an error-domain selector, because some authentication failures
-surface in a domain other than `kCFErrorDomainOSStatus`, and the interposer has to
-rebuild the right domain to be faithful. So a routed failure carries `(domain, code)`,
-and the interposer's `set_error` builds a `CFError` in that domain with that code,
-indistinguishable from the one the device's Security framework would have built.
+M3 adds key `13`, an error-domain selector, because some authentication failures surface
+in a domain other than `kCFErrorDomainOSStatus`, and the interposer has to rebuild the
+right domain to be faithful. This is a field added to both ends: the C `se_response`
+grows a domain alongside `error_code`, the Swift `Response.failure` grows a domain
+alongside its code, and the interposer's `set_error`, which hardcodes
+`kCFErrorDomainOSStatus` today, grows a domain argument. So a routed failure carries
+`(domain, code)`, and `set_error` builds a `CFError` in that domain with that code, which
+is intended to be indistinguishable from the device's, pending the device capture that
+clears the `device-confirm` flags. The reconstruction is of the error *envelope*, the
+domain and code an app's `do/catch` branches on; it does not reproduce a populated
+`userInfo` (`localizedDescription`, an underlying error), which the wire does not carry,
+so an app that branches on `localizedDescription` rather than the code still needs a
+device. That is a named scope line, not a hidden gap.
 
 $$
 \text{err}_{\text{sim}}(\text{category}) \;=\; \text{err}_{\text{device}}(\text{category}),
@@ -220,12 +259,19 @@ A fixture key has to be there next run. Today it is not: the helper's keys are
 `kSecAttrIsPermanent: false` and live in an in-memory dictionary, so a relaunch starts
 empty. M3 makes the SEP key durable and the lookup real.
 
-**The key is permanent and namespaced.** A key the app creates with a tag is created
-`kSecAttrIsPermanent: true` with a `kSecAttrApplicationTag`, in the macOS keychain,
-with `kSecUseDataProtectionKeychain: true` so the keychain returns key refs and gives
-the iOS-like semantics the bridge is emulating (M2 named this constraint; M3 takes it
-on). The SEP key material stays in the SEP across a relaunch; the keychain holds the
-reference. An ephemeral create (no tag) keeps M1's in-memory behavior.
+**The key is permanent, in a confined keychain scope.** A key the app creates with a tag
+is created `kSecAttrIsPermanent: true` with a `kSecAttrApplicationTag`, in the macOS
+data-protection keychain (`kSecUseDataProtectionKeychain: true`, so the keychain returns
+key refs and gives the iOS-like semantics the bridge emulates; M2 named this constraint,
+M3 takes it on). The SEP key material stays in the SEP across a relaunch; the keychain
+holds the reference. An ephemeral create (no tag) keeps M1's in-memory behavior. Using
+the data-protection keychain with a stable scope across relaunches is why M1 deferred the
+`com.apple.application-identifier` entitlement to here: it gives the helper a keychain
+access group, which is the confinement boundary below. Whether an ad-hoc-signed accessory
+helper can take that entitlement and a stable access group on the dev's Mac, or whether
+M3 falls back to a dedicated keychain the helper owns outright, is a **spike**; the
+Developer-ID-signed distribution build is still M5, this is only the local-dev signing
+that persistence needs.
 
 **The lookup is a real query.** M3 adds a `FIND_BY_TAG` op (op `6`, appended after
 `DELETE`): the interposer sends an app tag, the helper queries its keychain namespace
@@ -238,34 +284,45 @@ session-scoped and may be reissued across runs; the durable identity is the tag,
 the interposer's registry is rebuilt per session anyway because the guest process also
 restarts.
 
-**Per-UDID namespacing is hygiene, not security.** The M1 auth review settled that a
-guest-reported simulator UDID is attacker-chosen over loopback and so cannot be a
-security boundary. M3 keeps that ruling: the UDID rides the wire (key `15`) only to
-namespace keys so two simulators or two apps with the same logical tag do not collide,
-and so erasing a simulator can purge its keys. The access boundary remains the
-capability token, exactly as in M1. The namespaced keychain tag is a structured value,
-a fixed SimEnclave prefix, then the UDID, then the app's logical tag, and that
-structure is what makes both isolation and the next property hold.
+**Per-UDID namespacing is collision-avoidance, not a boundary.** The M1 auth review
+settled that a guest-reported simulator UDID is attacker-chosen over loopback and so
+cannot be a security boundary. M3 keeps that ruling exactly: the UDID rides the wire (key
+`15`) only so two cooperating simulators, or two apps, with the same logical tag do not
+collide, and so erasing a simulator can purge its keys. The access boundary remains the
+capability token. The namespaced tag is a structured value, a fixed SimEnclave prefix,
+then the UDID, then the app's logical tag, but that structure is convenience and hygiene;
+it is emphatically *not* what enforces the confinement below, because a token holder could
+forge any UDID. Confinement is anchored on a host-controlled scope, never on the
+guest-reported tag.
 
-**Keychain confinement is a safety invariant.** Persistence is the first time the
-helper writes durable state into the developer's own macOS keychain, so it is the
-first time the helper could touch a key that is not its own. It must not. Every item
-the helper creates carries the SimEnclave prefix, and every query the helper issues is
-scoped by that prefix. Let $K_{\text{dev}}$ be the developer's own keychain items and
-$Q$ the set the helper's queries can match. Then
+**Keychain confinement is a safety invariant, anchored on the access group.** Persistence
+is the first time the helper writes durable state near the developer's own macOS keychain,
+so it is the first time the helper could touch a key that is not its own. It must not. The
+enforceable boundary is the keychain **access group**, not a tag name:
+`kSecAttrApplicationTag` is an exact-match attribute with no prefix operator, so a startup
+enumeration cannot say "every tag beginning with the SimEnclave prefix" and would have to
+fall back to a class-only `kSecMatchLimitAll` query that matches the developer's keys and
+filters in code, which is exactly the query that must never be issued. The access group
+has no such gap: every query the helper issues, the startup enumeration and any bulk
+`SecItemDelete` included, carries `kSecAttrAccessGroup` set to the helper's group, and the
+keychain itself confines the result to items created in that group. Let $K_{\text{dev}}$
+be the developer's own keychain items and $Q$ the set the helper's queries can match. Then
 
 $$
 Q \cap K_{\text{dev}} = \varnothing
 $$
 
-by construction: a query that does not carry the SimEnclave prefix is never issued, so
-no helper operation, and in particular no `SecItemDelete`, can ever enumerate, return,
-or remove an item the developer created outside the tool. This sits alongside fail-
-closed and passthrough as a property the tool is built to not violate, and a slice
-test asserts it directly by planting a foreign keychain item and proving the helper's
-find and delete never see it. A purge path (clear one UDID's keys, or all of the
-tool's keys) lives behind the same prefix scope; the polished `simenclavectl` purge is
-M5, but the scoped delete it calls is M3.
+because every query carries the SimEnclave access group, a host-controlled scope the guest
+cannot name, so no helper operation, and in particular no `SecItemDelete`, can enumerate,
+return, or remove an item outside the tool's group. The SimEnclave tag prefix and the
+per-UDID structure are secondary hygiene *inside* that group, never the boundary. (The
+data-protection keychain helps but is not sufficient alone: the developer may have their
+own data-protection-keychain keys, and the access group is what excludes those.) This
+sits alongside fail-closed and passthrough as a property the tool is built to not violate,
+and a slice test asserts it directly by planting a foreign keychain item and proving the
+helper's find and delete never see it. A purge (clear one UDID's keys, or all of the
+tool's keys) is a `SecItemDelete` scoped by the same access group; the polished
+`simenclavectl purge` is M5, the scoped delete it calls is M3.
 
 ## The fidelity hooks
 
@@ -354,8 +411,8 @@ New keys:
 
 - **`11` access-control flags** (uint): the raw `SecAccessControlCreateFlags` bits,
   relayed for a faithful recreation.
-- **`12` protection class** (uint): a small enum of the `kSecAttrAccessible*`
-  constant the app passed.
+- **`12` protection class** (text): the `kSecAttrAccessible*` constant the app passed,
+  relayed verbatim as its own string rather than through a lossy interposer-side enum.
 - **`13` error domain** (uint): selects the `CFError` domain for a faithful failure,
   pairing with key `10`'s code.
 - **`14` app id** (text): the interposer-reported bundle id, for the approval prompt
@@ -366,12 +423,19 @@ New keys:
 
 `GENERATE` carries the access-control keys and, when the create is permanent, the app
 tag and UDID, so the helper makes a permanent namespaced key with a faithful access
-control. The work is the usual four-part change: `SPEC.md`, `protocol.cddl`, both
-codecs (C and Swift) byte-for-byte, and byte-exact codec tests, with the existing M2
-vectors unchanged as a regression. The C client's receive buffer, already named in M2
-as a ceiling to watch, is checked against the largest M3 response (a `FIND_BY_TAG`
-result is a handle plus a 65-byte public key, no larger than `GENERATE`), so it needs
-no raise, but the check is part of the slice rather than an assumption.
+control. The work is the usual four-part change: `SPEC.md`, `protocol.cddl`, both codecs
+(C and Swift) byte-for-byte, and byte-exact codec tests, with the existing M2 vectors
+unchanged as a regression. Two existing-code facts make the append safe and are worth
+stating rather than rediscovering. Both decoders ignore unknown map keys (the Swift
+`CBORMap` reads named keys from a dict; the C reader keeps all entries and `find` skips
+the unrecognized), so the new keys disturb neither end, and an old end even tolerates a
+new message beyond the decode-old-messages guarantee. And the C decoder decodes only
+*responses*, whose largest M3 shape is an error at five keys (op, status, error, code,
+domain), well under its `entries[8]` cap, so the cap needs no change; the requests that
+grow to eight keys are decoded by the Swift side, which is dict-backed and uncapped. The
+C client's receive buffer, named in M2 as a ceiling to watch, is checked against the
+largest M3 response (a `FIND_BY_TAG` result is a handle plus a 65-byte public key, no
+larger than `GENERATE`), so it needs no raise, but the check is part of the slice.
 
 ## Threat model and custody, M3
 
@@ -403,9 +467,9 @@ near it.
 
 The deltas worth stating as risks, each with its mitigation:
 
-- **Durable state in the developer's keychain.** Mitigated by confinement: scoped,
-  prefixed queries, a direct test that a foreign item is never matched, and a scoped
-  purge.
+- **Durable state in the developer's keychain.** Mitigated by confinement: every query
+  carries the helper's keychain access group, a host-controlled scope the guest cannot
+  name, with a direct planted-foreign-item test and an access-group-scoped purge.
 - **A foreground, focus-stealing prompt.** Mitigated by serialization (one sheet at a
   time), by naming the app, and by the prompt being non-load-bearing, so even a
   spoofed or spammed prompt is a nuisance, not a breach; the token still gates access.
@@ -424,18 +488,24 @@ prompt content beyond what the menubar shows the developer.
 M3 is done when, on a Mac with a real Secure Enclave:
 
 - A biometry-gated create routes as biometry (the access control is captured at its
-  source and relayed), and a biometry sign brings up a real Mac Touch ID prompt naming
-  the app, while a silent key never prompts.
-- A canceled or failed prompt surfaces, through the interposer, the exact `(domain,
-  code)` a device returns, from a committed device-reference table.
+  source and relayed), and a biometry sign on the menubar build brings up a real Mac
+  Touch ID prompt naming the app, while a silent key never prompts and is never stalled
+  behind one.
+- A canceled or failed prompt surfaces, through the interposer, the `(domain, code)` from
+  a committed reference table whose entries stay `device-confirm` until a device run; the
+  mechanism (classify, map, rebuild) is what M3 proves, the device numbers clear with the
+  capture.
 - A key created in one helper run is found and signed in the next, two UDIDs do not
   collide, and a foreign keychain item is provably never matched or deleted.
 - A shadow reads as a private SE key under `SecKeyCopyAttributes` and refuses
   `SecKeyCopyExternalRepresentation`, while its public key still exports.
-- A new app id raises an approval prompt, and approval persists for the session.
+- A new app id raises an approval prompt on the menubar build, and approval persists for
+  the session.
 
-with the native C and Swift suites green, and the hardware-only paths (prompts,
-persistence) skipping cleanly where there is no SEP, as the existing tests do.
+with the native C and Swift suites green, the prompt paths exercised headless through a
+mock presenter, and the real-sheet and device-number paths verified on the menubar build
+and a device respectively, as the existing hardware-only tests skip cleanly without an
+SEP.
 
 Deferred, and to where:
 
@@ -453,47 +523,56 @@ Deferred, and to where:
 ## The slices
 
 Each slice is a PR that stays green, in the M1 and M2 rhythm: the wire and the capture
-spine first, then the prompt, then the durable and faithful behavior, then the
-convenience. Hardware-only behavior skips without an SEP, so every slice is green on
-the portable lane and proven on the Mac.
+spine first, then durable persistence, then the prompt it enables, then faithful failures
+and fidelity, then the convenience. Hardware-only behavior skips without an SEP, so every
+slice is green on the portable lane and proven on the Mac.
 
 1. **The wire grows for M3.** `SPEC.md`, `protocol.cddl`, both codecs, and byte-exact
-   tests gain op `6` (`FIND_BY_TAG`) and keys `11`-`16`, all appended, with the M2
-   vectors unchanged as a regression and the Swift enum cases added at the end. No
-   behavior. Green when both codecs round-trip the new op and fields byte-identically
-   and every M2 vector still passes.
-2. **Access-control capture and faithful biometry create.** Hook
-   `SecAccessControlCreateWithFlags` into a pointer-identity side table; at create,
-   read the `kSecAttrAccessControl`, set key `9` from a minimal interpretation, and
-   relay the raw flags and protection in keys `11`-`12`; the helper recreates a
-   faithful access control from them. Green when an app's biometry-gated create yields
-   a biometry-gated SEP key and a silent create is unchanged, both observed on the
-   helper.
-3. **The biometric prompt at sign time.** Resolve the prompt spike first (foreground,
-   a fresh named `LAContext`, the bind-by-fetch path), then grow the router with the
-   main-thread hop, the semaphore, and the serialized prompt actor. Green when a
-   biometry sign raises a real Touch ID prompt and a successful auth yields a verifying
-   signature, and a silent sign never touches the foreground.
-4. **Faithful failures.** Land the device-reference capture harness and the committed
+   tests gain op `6` (`FIND_BY_TAG`) and keys `11`-`16`, all appended, with the M2 vectors
+   unchanged as a regression and the Swift enum cases added at the end. Key `12` is
+   relayed text, and `Response.failure` and `se_response` grow a domain field. No behavior.
+   Green when both codecs round-trip the new op and fields byte-identically and every M2
+   vector still passes.
+2. **Access-control capture and faithful create.** Hook `SecAccessControlCreateWithFlags`
+   into a retain-on-capture, LRU-bounded side table (the retain closes the address-reuse
+   and capture-to-create TOCTOU hazards, the LRU bounds growth since there is no delete
+   event); at create, read the `kSecAttrAccessControl`, set key `9` from a minimal
+   interpretation, and relay the raw flags (key `11`) and protection (key `12`); grow
+   `SecureEnclaveService.generate` to accept them and build the access control, failing
+   closed on a flag set the host rejects. Green when an app's biometry-gated create yields
+   a biometry-gated SEP key and a silent create is unchanged, both observed on the helper,
+   with the cross-OS flag-validity spike resolved.
+3. **Durable persistence and confinement.** Permanent keys in the data-protection keychain
+   under the helper's access group (resolve the entitlement-versus-dedicated-keychain spike
+   first); startup enumeration scoped by the access group; `FIND_BY_TAG` querying the
+   keychain; `SecItemCopyMatching` routing it on a registry miss; the confinement invariant
+   ($Q \cap K_{\text{dev}} = \varnothing$, every query carrying the access group) and a
+   scoped purge. It lands before the prompt because the prompt's bind path can use a
+   permanent key. Green when a key from one run is found and signed in the next, two UDIDs
+   do not collide, and a planted foreign item is provably never matched or deleted.
+4. **The biometric prompt at sign time.** Make connection serving concurrent (each
+   accepted connection on its own worker, so a parked prompt blocks only its connection),
+   put foreground presentation behind a seam the menubar build fills and the CLI helper
+   does not (biometry is a menubar-helper capability; tests inject a mock presenter), and
+   grow the sign path with the main-thread hop, the semaphore, and the serialized
+   presenter. Resolve the bind spike (`evaluateAccessControl` pre-auth versus
+   context-scoped fetch). Green when a biometry sign raises a real Touch ID prompt on the
+   menubar build and a successful auth yields a verifying signature, a silent sign never
+   touches the foreground and is not stalled behind a prompt on another connection, and
+   the mock-presenter paths are green headless.
+5. **Faithful failures.** Land the device-reference capture harness and the committed
    table; the helper classifies its macOS failure and maps it to the device `(domain,
-   code)`; the wire carries key `13`; the interposer rebuilds the exact `CFError`.
-   Green when a canceled prompt surfaces the device's cancel error through the
-   interposer and the table is committed with provenance (entries `device-confirm`
-   until a device run clears them).
-5. **Durable persistence and confinement.** Permanent, namespaced keys with
-   `kSecUseDataProtectionKeychain`; startup enumeration; `FIND_BY_TAG` querying the
-   keychain; `SecItemCopyMatching` routing it on a registry miss; the confinement
-   invariant and a scoped purge. Green when a key from one run is found and signed in
-   the next, two UDIDs do not collide, and a planted foreign item is provably never
-   matched or deleted.
+   code)`; the wire carries key `13`; `set_error` grows a domain argument and rebuilds the
+   exact `CFError`. Green when a canceled prompt surfaces the cancel error through the
+   interposer and the table is committed with provenance, its entries `device-confirm`
+   until a device run (which may fall in M4 with the parity gate).
 6. **The fidelity hooks.** Hook `SecKeyCopyAttributes` (a registered shadow reports the
-   SE token and private class, from the reference) and
-   `SecKeyCopyExternalRepresentation` (a registered shadow returns the device's not-
-   exportable error; its public key still exports). Green when a shadow reads as a
-   private SE key and refuses export while its public key exports, matching the
-   reference.
-7. **The approval prompt.** The interposer reports the app id; the helper keys an in-
-   session approval set, prompts on a new app's first op through the serialized
-   foreground actor, remembers the answer, and returns a populated error on denial.
-   Green when a new app id raises a prompt and approval persists for the session, with
-   the prompt skippable in a headless run.
+   SE token and private class, from the reference) and `SecKeyCopyExternalRepresentation`
+   (a registered shadow returns the device's not-exportable error; its public key still
+   exports). Green when a shadow reads as a private SE key and refuses export while its
+   public key exports, matching the reference.
+7. **The approval prompt.** The interposer reports the app id; the helper keys an
+   in-session approval set, prompts on a new app's first op through the same serialized
+   presenter, remembers the answer, and returns a populated error on denial. Green when a
+   new app id raises a prompt and approval persists for the session, with the prompt
+   skippable headless via the mock presenter.
