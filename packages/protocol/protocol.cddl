@@ -1,0 +1,49 @@
+; SimEnclave wire protocol, version 1 (see VERSION and SPEC.md).
+;
+; Every message is a CBOR map with unsigned-integer keys, carried inside a
+; 4-byte big-endian length-prefixed frame. Integer keys keep the encoding
+; compact and canonical. M0 defines GENERATE and SIGN; HELLO version
+; negotiation, a capability token, GET_PUBKEY, and DELETE are M1 and extend
+; this schema without changing the framing.
+
+start = request / response
+
+; --- keys ---------------------------------------------------------------
+; 0 op   1 status   2 handle   3 publicKey   4 digest   5 signature   6 error
+
+; --- requests -----------------------------------------------------------
+
+request = generate-request / sign-request
+
+generate-request = {
+  0 => 2,                ; op = GENERATE
+}
+
+sign-request = {
+  0 => 4,                ; op = SIGN
+  2 => bstr,             ; handle from a prior GENERATE
+  4 => bstr .size 32,    ; digest, a 32-byte SHA-256 value
+}
+
+; --- responses ----------------------------------------------------------
+
+response = generate-ok / sign-ok / error-response
+
+generate-ok = {
+  0 => 2,                ; op = GENERATE
+  1 => 0,                ; status = OK
+  2 => bstr,             ; handle
+  3 => bstr,             ; publicKey, X9.63 uncompressed (65 bytes)
+}
+
+sign-ok = {
+  0 => 4,                ; op = SIGN
+  1 => 0,                ; status = OK
+  5 => bstr,             ; signature, X9.62 DER, exactly what the device returns
+}
+
+error-response = {
+  0 => uint,             ; op echoed
+  1 => 1,                ; status = ERROR
+  6 => tstr,             ; human-readable reason
+}
