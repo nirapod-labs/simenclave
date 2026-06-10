@@ -21,3 +21,9 @@ dist/notarization/
 .env
 *.local
 *.log
+
+# Vendored Dobby: fetched and built by scripts/fetch-dobby.sh, not committed
+packages/interpose/vendor/dobby/
+
+# CMake build trees
+build-sim/

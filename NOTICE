@@ -3,7 +3,7 @@ Copyright 2026 Nirapod Labs
 
 This product includes software developed at Nirapod Labs.
 
-Third-party components are listed here as they are added. The interposer vendors
-Dobby (https://github.com/jmpews/Dobby, Apache-2.0) as its default hook backend;
-its license and notices are reproduced under packages/interpose/vendor/ when it
-lands in M2.
+The interposer uses Dobby (https://github.com/jmpews/Dobby, Apache-2.0) as its
+default inline-hook backend. scripts/fetch-dobby.sh fetches it, pinned, into
+packages/interpose/vendor/dobby (gitignored), where its LICENSE travels with the
+checkout.
