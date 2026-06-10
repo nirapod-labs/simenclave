@@ -30,16 +30,16 @@ Done when CI is green on an empty scaffold and branch protection plus convention
 
 ### M0: prove it
 
-Status: not started. This one is a spike. Target: 2026-06-12 to 06-17.
+Status: done (2026-06-10). This one was a spike. Target was 2026-06-12 to 06-17.
 
 Before any polish, show the one thing that matters works: a hooked SecKey call in the simulator gets a signature from the Mac's real Secure Enclave.
 
-- [ ] Helper stub generates a P-256 key in the Mac SEP and signs a 32-byte digest (`host-core`)
-- [ ] A bare loopback protocol with two messages, `GENERATE` and `SIGN`, no auth yet
-- [ ] Interposer stub inline-hooks `SecKeyCreateSignature` in a sim app and calls the helper
-- [ ] The signature it returns verifies against the host public key
+- [x] Helper generates a P-256 key in the Mac SEP and signs a 32-byte digest, via the `SecKey` C API (`host-core`)
+- [x] A length-framed CBOR loopback protocol, `GENERATE` and `SIGN`, no auth yet (`protocol`)
+- [x] Interposer inline-hooks `SecKeyCreateRandomKey`, `SecKeyCopyPublicKey`, and `SecKeyCreateSignature` with Dobby and routes to the helper (`interpose`)
+- [x] The returned signature verifies against the host public key, on the host (`run-mechanism-c.sh`) and in the simulator (`run-mechanism-d.sh`)
 
-Done when a hooked `SecKeyCreateSignature` in the simulator returns a Mac-SEP signature that verifies. That's the whole bar, nothing else.
+Done: a hooked `SecKeyCreateSignature` in the simulator returns a Mac-SEP signature that verifies, with the stock no-SEP failure as the control. That was the whole bar.
 
 SimEnclave targets the `SecKey` C API, which hooks cleanly, and the M0 demo uses it directly. Apps that use CryptoKit's `SecureEnclave.P256` are best-effort, since CryptoKit bottoms out in the same `SecKey` path.
 
