@@ -139,6 +139,35 @@ int main(void) {
     fails++;
   }
 
+  // Fully-nested idiom: both the SE token and the access control sit inside
+  // kSecPrivateKeyAttrs. The token detector and the access-control extractor must both
+  // resolve the nested form, so this create routes and returns a key like the
+  // top-level-token shape above does.
+  SecAccessControlRef nestedAccess = SecAccessControlCreateWithFlags(
+      kCFAllocatorDefault, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+      kSecAccessControlPrivateKeyUsage | kSecAccessControlUserPresence, NULL);
+  if (nestedAccess) {
+    const void *n_priv_keys[] = {kSecAttrTokenID, kSecAttrAccessControl};
+    const void *n_priv_values[] = {kSecAttrTokenIDSecureEnclave, nestedAccess};
+    CFDictionaryRef n_priv =
+        CFDictionaryCreate(NULL, n_priv_keys, n_priv_values, 2, &kCFTypeDictionaryKeyCallBacks,
+                           &kCFTypeDictionaryValueCallBacks);
+    const void *n_keys[] = {kSecPrivateKeyAttrs};
+    const void *n_values[] = {n_priv};
+    CFDictionaryRef n_params = CFDictionaryCreate(
+        NULL, n_keys, n_values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    SecKeyRef n_key = SecKeyCreateRandomKey(n_params, NULL);
+    printf("nested-attrs create: %d\n", n_key != NULL);
+    if (!n_key) fails++;
+    if (n_key) CFRelease(n_key);
+    if (n_priv) CFRelease(n_priv);
+    if (n_params) CFRelease(n_params);
+    CFRelease(nestedAccess);
+  } else {
+    printf("FAIL: building a nested user-presence access control returned NULL\n");
+    fails++;
+  }
+
   // SecItem tag round-trip: a key created permanent with a tag is found by that
   // tag, signs through the host, is deleted by tag, and is gone afterward.
   uint8_t tag_bytes[] = {'s', 'e', '.', 'r', 'o', 'u', 'n', 'd'};

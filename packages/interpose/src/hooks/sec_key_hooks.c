@@ -27,7 +27,10 @@ static ac_create_with_flags_fn orig_ac_create_with_flags;
 
 // The access-control flags that make a key require a prompt at sign time: any
 // biometric or user-presence constraint. A key carrying any of these is the biometry
-// class on the wire (key 9); a key with none is silent.
+// class on the wire (key 9); a key with none is silent. kSecAccessControlWatch is left
+// out on purpose: it is unavailable to an iOS guest. The class bit only drives the
+// prompt UX; the SEP gate itself is rebuilt from the raw relayed flags, so a class-bit
+// miss never weakens the gate.
 static const SecAccessControlCreateFlags SE_PROMPT_FLAGS =
     kSecAccessControlUserPresence | kSecAccessControlBiometryAny |
     kSecAccessControlBiometryCurrentSet | kSecAccessControlDevicePasscode;
