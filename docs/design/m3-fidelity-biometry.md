@@ -255,9 +255,20 @@ guest side.
 
 ## Persistence across relaunches
 
-A fixture key has to be there next run. Today it is not: the helper's keys are
-`kSecAttrIsPermanent: false` and live in an in-memory dictionary, so a relaunch starts
-empty. M3 makes the SEP key durable and the lookup real.
+**Deferred to M5, because it needs a signed helper.** A spike settled this empirically:
+adding a permanent Secure Enclave key to the keychain returns `errSecMissingEntitlement`
+(-34018) from an ad-hoc binary, and an ad-hoc binary that *claims* the
+`keychain-access-groups` entitlement is killed at launch, because the entitlement is not
+honored without a provisioning identity, and this Mac has no signing identity at all. So
+durable persistence across a helper restart cannot be built or proven without the
+Developer ID signing that M5 already owns; it moves there. The `FIND_BY_TAG` wire op
+(slice 1) and the design below are its groundwork. In-session persistence, a fixture key
+surviving simulator-app relaunches while the helper stays running, already holds from M1
+and M2. The rest of this section is the design the signed M5 helper follows.
+
+A fixture key has to be there next run. The signed helper makes the SEP key durable and
+the lookup real; until then the helper's keys are `kSecAttrIsPermanent: false` in an
+in-memory dictionary, which a helper restart starts empty.
 
 **The key is permanent, in a confined keychain scope.** A key the app creates with a tag
 is created `kSecAttrIsPermanent: true` with a `kSecAttrApplicationTag`, in the macOS
@@ -495,8 +506,9 @@ M3 is done when, on a Mac with a real Secure Enclave:
   a committed reference table whose entries stay `device-confirm` until a device run; the
   mechanism (classify, map, rebuild) is what M3 proves, the device numbers clear with the
   capture.
-- A key created in one helper run is found and signed in the next, two UDIDs do not
-  collide, and a foreign keychain item is provably never matched or deleted.
+- A fixture key survives a simulator-app relaunch while the helper runs (the in-session
+  store from M1 and M2); durable across-restart persistence is M5, with the signing it
+  needs (see the persistence section).
 - A shadow reads as a private SE key under `SecKeyCopyAttributes` and refuses
   `SecKeyCopyExternalRepresentation`, while its public key still exports.
 - A new app id raises an approval prompt on the menubar build, and approval persists for
@@ -515,6 +527,10 @@ Deferred, and to where:
   M4 gates on it.
 - The `simenclavectl` polish (the `doctor`, `init`, `purge`, `keys` commands that wrap
   M3's mechanisms), and the example apps: **M5**.
+- Durable across-restart persistence: **M5**, because a permanent Secure Enclave keychain
+  key needs a signed, provisioned helper (the spike above), which is the Developer ID work
+  M5 already carries. The `FIND_BY_TAG` op and the namespace and confinement design are in
+  place as its groundwork.
 - Durable cross-session approval, and peer code-signature or audit-token verification
   on the socket: after 1.0, when the dev threat model tightens.
 - Algorithm coverage beyond the `X962` SHA-256 allowlist: when an app needs it,
@@ -523,9 +539,11 @@ Deferred, and to where:
 ## The slices
 
 Each slice is a PR that stays green, in the M1 and M2 rhythm: the wire and the capture
-spine first, then durable persistence, then the prompt it enables, then faithful failures
-and fidelity, then the convenience. Hardware-only behavior skips without an SEP, so every
-slice is green on the portable lane and proven on the Mac.
+spine first, then the prompt, then faithful failures and the fidelity hooks, then the
+convenience. Durable persistence (slice 3) is deferred to M5 with the signing it needs, so
+the prompt binds its context on the in-memory key rather than a fetched permanent one.
+Hardware-only behavior skips without an SEP, and the real prompt and device error codes
+are verified on the menubar build and a device; the rest is green on the portable lane.
 
 1. **The wire grows for M3.** `SPEC.md`, `protocol.cddl`, both codecs, and byte-exact
    tests gain op `6` (`FIND_BY_TAG`) and keys `11`-`16`, all appended, with the M2 vectors
@@ -542,24 +560,23 @@ slice is green on the portable lane and proven on the Mac.
    closed on a flag set the host rejects. Green when an app's biometry-gated create yields
    a biometry-gated SEP key and a silent create is unchanged, both observed on the helper,
    with the cross-OS flag-validity spike resolved.
-3. **Durable persistence and confinement.** Permanent keys in the data-protection keychain
-   under the helper's access group (resolve the entitlement-versus-dedicated-keychain spike
-   first); startup enumeration scoped by the access group; `FIND_BY_TAG` querying the
-   keychain; `SecItemCopyMatching` routing it on a registry miss; the confinement invariant
-   ($Q \cap K_{\text{dev}} = \varnothing$, every query carrying the access group) and a
-   scoped purge. It lands before the prompt because the prompt's bind path can use a
-   permanent key. Green when a key from one run is found and signed in the next, two UDIDs
-   do not collide, and a planted foreign item is provably never matched or deleted.
+3. **Durable persistence and confinement (deferred to M5).** A spike proved a permanent
+   Secure Enclave keychain key needs a signed, provisioned helper, which this Mac cannot
+   produce, so durable across-restart persistence moves to M5 with the Developer ID work.
+   The design above stands as its groundwork: permanent namespaced keys, startup
+   enumeration, `FIND_BY_TAG` over the keychain, the access-group confinement invariant
+   ($Q \cap K_{\text{dev}} = \varnothing$), and a scoped purge. In-session persistence
+   already holds from M1 and M2.
 4. **The biometric prompt at sign time.** Make connection serving concurrent (each
    accepted connection on its own worker, so a parked prompt blocks only its connection),
    put foreground presentation behind a seam the menubar build fills and the CLI helper
    does not (biometry is a menubar-helper capability; tests inject a mock presenter), and
    grow the sign path with the main-thread hop, the semaphore, and the serialized
-   presenter. Resolve the bind spike (`evaluateAccessControl` pre-auth versus
-   context-scoped fetch). Green when a biometry sign raises a real Touch ID prompt on the
-   menubar build and a successful auth yields a verifying signature, a silent sign never
-   touches the foreground and is not stalled behind a prompt on another connection, and
-   the mock-presenter paths are green headless.
+   presenter. Bind the prompt with `evaluateAccessControl` on the in-memory key, since the
+   fetch-a-permanent-key path waits on M5's persistence. Green when a biometry sign raises
+   a real Touch ID prompt on the menubar build and a successful auth yields a verifying
+   signature, a silent sign never touches the foreground and is not stalled behind a prompt
+   on another connection, and the mock-presenter paths are green headless.
 5. **Faithful failures.** Land the device-reference capture harness and the committed
    table; the helper classifies its macOS failure and maps it to the device `(domain,
    code)`; the wire carries key `13`; `set_error` grows a domain argument and rebuilds the
