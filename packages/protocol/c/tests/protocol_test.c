@@ -82,7 +82,8 @@ int main(void) {
   // accepted (CBOR major 1) and the reason still reads.
   uint8_t err_code[] = {0xA4, 0x00, 0x02, 0x01, 0x01, 0x06, 0x62, 'n', 'o', 0x0A, 0x39, 0x62, 0xCC};
   CHECK(se_decode_response(err_code, sizeof(err_code), &resp) == SE_OK &&
-            resp.kind == SE_RESP_ERROR && strcmp(resp.error, "no") == 0,
+            resp.kind == SE_RESP_ERROR && strcmp(resp.error, "no") == 0 &&
+            resp.error_code == -25293,
         "decode error with osstatus");
 
   // Framing.
