@@ -1,3 +1,9 @@
-Checks: "clang-analyzer-*,bugprone-*,performance-*,readability-*,-readability-identifier-length"
+# Curated for a low-level C wire codec and an interposer. The bug-finding
+# families stay on (clang-analyzer, bugprone, performance). Off:
+#   readability-identifier-length         one-letter loop/byte vars are idiomatic here
+#   readability-magic-numbers             the CBOR byte constants are the wire format
+#   readability-braces-around-statements  clashes with .clang-format compact returns
+#   bugprone-easily-swappable-parameters  flags ordinary (buf,len)/(ptr,count) C
+Checks: "clang-analyzer-*,bugprone-*,-bugprone-easily-swappable-parameters,performance-*,readability-*,-readability-identifier-length,-readability-magic-numbers,-readability-braces-around-statements"
 WarningsAsErrors: ""
 HeaderFilterRegex: "packages/interpose/(src|include)/.*"
