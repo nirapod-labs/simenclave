@@ -68,9 +68,24 @@ key `7` has to be uniquely defined by the bytes before it is checked. The keys:
 | 8   | `version`   | both      | uint, HELLO only           |
 | 9   | `keyClass`  | request   | uint, GENERATE only        |
 | 10  | `errorCode` | response  | int, an `OSStatus`         |
+| 11  | `accessFlags` | request | uint, `SecAccessControlCreateFlags`, GENERATE |
+| 12  | `protection`  | request | tstr, a `kSecAttrAccessible*` constant, GENERATE |
+| 13  | `errorDomain` | response | uint, error-domain selector, optional |
+| 14  | `appID`       | request | tstr, the guest-reported bundle id |
+| 15  | `udid`        | request | tstr, the simulator UDID, for namespacing |
+| 16  | `appTag`      | request | bstr, the app's `kSecAttrApplicationTag` |
 
-Operations: `1` HELLO, `2` GENERATE, `3` GET_PUBKEY, `4` SIGN, `5` DELETE.
-Status: `0` OK, `1` ERROR. Key class: `0` silent, `1` biometry. Version: `1`.
+Operations: `1` HELLO, `2` GENERATE, `3` GET_PUBKEY, `4` SIGN, `5` DELETE,
+`6` FIND_BY_TAG.
+Status: `0` OK, `1` ERROR. Key class: `0` silent, `1` biometry. Version: `1`. Error
+domain in key `13`: `0` the OSStatus domain (`kCFErrorDomainOSStatus`, the default,
+omitted when it applies), `1` the LocalAuthentication domain.
+
+Keys `11` through `16` and op `6` are version-1 additions, grown the way a
+self-describing map is meant to grow. Op `6` (`FIND_BY_TAG`) and the error domain
+(key `13`) are wired below; keys `11`, `12`, and `14` attach to `GENERATE` and to
+requests as the biometry, persistence, and approval work lands. The M0 and M1
+message bytes are unchanged throughout.
 
 ### Requests
 
@@ -116,6 +131,14 @@ before sending, so the helper's job is always a pure digest sign.
 { 0: 5, 2: <handle>, 7: <token> }
 ```
 
+`FIND_BY_TAG` looks up a key persisted in an earlier session by its application tag,
+scoped to a simulator UDID, the durable counterpart to a `GET_PUBKEY` by handle. The
+UDID namespaces cooperating runs and is not a security boundary:
+
+```
+{ 0: 6, 7: <token>, 15: "<udid>", 16: <appTag> }
+```
+
 ### Responses
 
 A response echoes the operation in key `0` and carries the status in key `1`. It
@@ -155,8 +178,16 @@ is the app's concern and not the bridge's:
 { 0: 5, 1: 0 }
 ```
 
-An error echoes the failing op, sets status `1`, and carries both a numeric code
-and a human-readable reason:
+`FIND_BY_TAG` returns the found key's handle and public key, the same shape as
+`GENERATE`, or an error if no key matches the tag:
+
+```
+{ 0: 6, 1: 0, 2: <handle>, 3: <publicKey> }
+```
+
+An error echoes the failing op, sets status `1`, and carries a numeric code and a
+human-readable reason, and optionally the error domain in key `13` when it is not the
+default OSStatus domain (a cancelled biometric prompt, for one):
 
 ```
 { 0: <op>, 1: 1, 6: "<reason>", 10: <osstatus> }

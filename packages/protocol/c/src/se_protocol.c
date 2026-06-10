@@ -18,6 +18,12 @@ enum {
   K_TOKEN = 7,
   K_VERSION = 8,
   K_ERR_CODE = 10,
+  K_ACCESS_FLAGS = 11,
+  K_PROTECTION = 12,
+  K_ERR_DOMAIN = 13,
+  K_APP_ID = 14,
+  K_UDID = 15,
+  K_APP_TAG = 16,
 };
 // ops and status
 enum {
@@ -26,6 +32,7 @@ enum {
   OP_GET_PUBKEY = 3,
   OP_SIGN = 4,
   OP_DELETE = 5,
+  OP_FIND_BY_TAG = 6,
   ST_OK = 0,
   ST_ERROR = 1
 };
@@ -140,6 +147,22 @@ int se_encode_hello(const uint8_t *token, size_t token_len, uint64_t version, ui
   w_bytes(&w, CBOR_BYTES, token, token_len);
   w_head(&w, CBOR_UINT, K_VERSION);
   w_head(&w, CBOR_UINT, version);
+  return w.overflow ? -1 : (int)w.pos;
+}
+
+int se_encode_find_by_tag(const uint8_t *token, size_t token_len, const uint8_t *udid,
+                          size_t udid_len, const uint8_t *app_tag, size_t app_tag_len,
+                          uint8_t *out, size_t cap) {
+  writer w = {out, cap, 0, 0};
+  w_head(&w, CBOR_MAP, 4); // map(4): op, token, udid, app tag, keys ascending
+  w_head(&w, CBOR_UINT, K_OP);
+  w_head(&w, CBOR_UINT, OP_FIND_BY_TAG);
+  w_head(&w, CBOR_UINT, K_TOKEN);
+  w_bytes(&w, CBOR_BYTES, token, token_len);
+  w_head(&w, CBOR_UINT, K_UDID);
+  w_bytes(&w, CBOR_TEXT, udid, udid_len);
+  w_head(&w, CBOR_UINT, K_APP_TAG);
+  w_bytes(&w, CBOR_BYTES, app_tag, app_tag_len);
   return w.overflow ? -1 : (int)w.pos;
 }
 
@@ -260,6 +283,7 @@ se_status se_decode_response(const uint8_t *payload, size_t len, se_response *ou
   if (status->uintval == ST_ERROR) {
     out->kind = SE_RESP_ERROR;
     out->error_code = 0;
+    out->error_domain = 0;
     const entry *code = find(entries, count, K_ERR_CODE);
     // Bound the attacker-controlled integer before the signed cast: an out-of-range
     // code stays 0, which the hooks treat as "no specific code" and map to a
@@ -268,6 +292,10 @@ se_status se_decode_response(const uint8_t *payload, size_t len, se_response *ou
       out->error_code = -(int)(code->uintval + 1); // CBOR negint n encodes -1 - n
     } else if (code && code->major == CBOR_UINT && code->uintval <= INT_MAX) {
       out->error_code = (int)code->uintval;
+    }
+    const entry *dom = find(entries, count, K_ERR_DOMAIN);
+    if (dom && dom->major == CBOR_UINT && dom->uintval <= INT_MAX) {
+      out->error_domain = (int)dom->uintval;
     }
     const entry *msg = find(entries, count, K_ERR);
     size_t n = 0;
@@ -307,6 +335,14 @@ se_status se_decode_response(const uint8_t *payload, size_t len, se_response *ou
     const entry *ver = find(entries, count, K_VERSION);
     out->version = (ver && ver->major == CBOR_UINT) ? ver->uintval : 0;
     return SE_OK;
+  }
+  if (op->uintval == OP_FIND_BY_TAG) {
+    out->kind = SE_RESP_FOUND;
+    st = copy_span(find(entries, count, K_HANDLE), out->handle, sizeof(out->handle),
+                   &out->handle_len);
+    if (st != SE_OK) return st;
+    return copy_span(find(entries, count, K_PUBKEY), out->public_key, sizeof(out->public_key),
+                     &out->public_key_len);
   }
   return SE_ERR_OPCODE;
 }

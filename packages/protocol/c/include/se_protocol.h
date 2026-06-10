@@ -29,6 +29,7 @@ typedef enum {
   SE_RESP_PUBKEY,
   SE_RESP_DELETED,
   SE_RESP_HELLO,
+  SE_RESP_FOUND,
   SE_RESP_ERROR,
 } se_resp_kind;
 
@@ -42,6 +43,7 @@ typedef struct {
   size_t signature_len;
   char error[256];
   int error_code;   // the helper's OSStatus on an error response, 0 otherwise
+  int error_domain; // the error-domain selector (key 13) on an error: 0 = OSStatus
   uint64_t version; // the protocol version on a HELLO response
 } se_response;
 
@@ -65,6 +67,12 @@ int se_encode_delete(const uint8_t *token, size_t token_len, const uint8_t *hand
 // Encode a HELLO request payload carrying the token and the protocol version.
 int se_encode_hello(const uint8_t *token, size_t token_len, uint64_t version, uint8_t *out,
                     size_t cap);
+
+// Encode a FIND_BY_TAG request payload carrying the token, the simulator UDID (text),
+// and the application tag (bytes), to look up a persisted key by tag.
+int se_encode_find_by_tag(const uint8_t *token, size_t token_len, const uint8_t *udid,
+                          size_t udid_len, const uint8_t *app_tag, size_t app_tag_len,
+                          uint8_t *out, size_t cap);
 
 // Decode a response payload into out, dispatching on op and status.
 se_status se_decode_response(const uint8_t *payload, size_t len, se_response *out);

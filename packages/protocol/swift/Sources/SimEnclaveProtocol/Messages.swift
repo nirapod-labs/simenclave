@@ -15,6 +15,7 @@ public enum Request: Equatable {
     case getPublicKey(handle: Data)
     case sign(handle: Data, digest: Data)
     case delete(handle: Data)
+    case findByTag(appTag: Data, udid: String)
 }
 
 /// A reply from the helper to the interposer.
@@ -24,7 +25,17 @@ public enum Response: Equatable {
     case publicKey(Data)
     case signed(signature: Data)
     case deleted
-    case failure(code: Int64, message: String)
+    case failure(code: Int64, message: String, domain: UInt64)
+    case found(handle: Data, publicKey: Data)
+}
+
+public extension Response {
+    /// A failure in the OSStatus domain, the common case before M3. The domain
+    /// argument defaults here so the helper's existing call sites stay unchanged;
+    /// a LocalAuthentication-domain failure passes the domain explicitly.
+    static func failure(code: Int64, message: String) -> Response {
+        .failure(code: code, message: message, domain: Wire.domainOSStatus)
+    }
 }
 
 /// The version-1 message codec: a CBOR map in and out (see `SPEC.md`). Socket
@@ -35,6 +46,7 @@ public enum Wire {
     static let opGetPublicKey: UInt64 = 3
     static let opSign: UInt64 = 4
     static let opDelete: UInt64 = 5
+    static let opFindByTag: UInt64 = 6
     static let statusOK: UInt64 = 0
     static let statusError: UInt64 = 1
     public static let version1: UInt64 = 1
@@ -50,6 +62,17 @@ public enum Wire {
     static let keyVersion: UInt64 = 8
     static let keyClassKey: UInt64 = 9
     static let keyErrorCode: UInt64 = 10
+    static let keyAccessFlags: UInt64 = 11
+    static let keyProtection: UInt64 = 12
+    static let keyErrorDomain: UInt64 = 13
+    static let keyAppID: UInt64 = 14
+    static let keyUDID: UInt64 = 15
+    static let keyAppTag: UInt64 = 16
+
+    /// Error-domain selectors for key 13. The default is the OSStatus domain used
+    /// before M3; the LocalAuthentication domain arrives with the biometry work.
+    public static let domainOSStatus: UInt64 = 0
+    public static let domainLAError: UInt64 = 1
 
     /// Encode a request, carrying the capability token in key 7. The token rides
     /// every request; the helper validates it before interpreting the op.
@@ -90,6 +113,13 @@ public enum Wire {
             writer.uint(keyOp); writer.uint(opDelete)
             writer.uint(keyHandle); writer.bytes(handle)
             writer.uint(keyToken); writer.bytes(token)
+        case let .findByTag(appTag, udid):
+            // map(4) { 0: 6, 7: token, 15: udid, 16: appTag }, keys ascending.
+            writer.mapHeader(4)
+            writer.uint(keyOp); writer.uint(opFindByTag)
+            writer.uint(keyToken); writer.bytes(token)
+            writer.uint(keyUDID); writer.text(udid)
+            writer.uint(keyAppTag); writer.bytes(appTag)
         }
         return writer.data
     }
@@ -113,6 +143,8 @@ public enum Wire {
             return .sign(handle: try map.bytes(keyHandle), digest: try map.bytes(keyDigest))
         case opDelete:
             return .delete(handle: try map.bytes(keyHandle))
+        case opFindByTag:
+            return .findByTag(appTag: try map.bytes(keyAppTag), udid: try map.text(keyUDID))
         case let other:
             throw ProtocolError.badOpcode(other)
         }
@@ -146,12 +178,22 @@ public enum Wire {
             writer.mapHeader(2)
             writer.uint(keyOp); writer.uint(opDelete)
             writer.uint(keyStatus); writer.uint(statusOK)
-        case let .failure(code, message):
+        case let .found(handle, publicKey):
             writer.mapHeader(4)
+            writer.uint(keyOp); writer.uint(opFindByTag)
+            writer.uint(keyStatus); writer.uint(statusOK)
+            writer.uint(keyHandle); writer.bytes(handle)
+            writer.uint(keyPublicKey); writer.bytes(publicKey)
+        case let .failure(code, message, domain):
+            // The OSStatus domain is the default and omits key 13, keeping the M2
+            // failure bytes; a non-default domain (LocalAuthentication) adds it.
+            let includeDomain = domain != domainOSStatus
+            writer.mapHeader(includeDomain ? 5 : 4)
             writer.uint(keyOp); writer.uint(opGenerate)
             writer.uint(keyStatus); writer.uint(statusError)
             writer.uint(keyError); writer.text(message)
             writer.uint(keyErrorCode); writer.int(code)
+            if includeDomain { writer.uint(keyErrorDomain); writer.uint(domain) }
         }
         return writer.data
     }
@@ -160,7 +202,8 @@ public enum Wire {
         let map = try CBORMap(decoding: payload)
         let status = try map.uint(keyStatus)
         if status == statusError {
-            return .failure(code: try map.int(keyErrorCode), message: try map.text(keyError))
+            return .failure(code: try map.int(keyErrorCode), message: try map.text(keyError),
+                            domain: map.optionalUint(keyErrorDomain) ?? domainOSStatus)
         }
         guard status == statusOK else { throw ProtocolError.badStatus(status) }
         switch try map.uint(keyOp) {
@@ -174,6 +217,8 @@ public enum Wire {
             return .signed(signature: try map.bytes(keySignature))
         case opDelete:
             return .deleted
+        case opFindByTag:
+            return .found(handle: try map.bytes(keyHandle), publicKey: try map.bytes(keyPublicKey))
         case let other:
             throw ProtocolError.badOpcode(other)
         }
