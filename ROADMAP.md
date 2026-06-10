@@ -88,17 +88,17 @@ Done: a biometric sign prompts Mac Touch ID, a cancel surfaces the device error 
 
 ### M4: parity and the fence
 
-Status: not started. Target: 2026-07-17 to 07-23. This is the release gate.
+Status: in progress (2026-06-11). Target was 2026-07-17 to 07-23. This is the release gate. Everything closable without hardware is done; two items need a real device and a provisioned runner the operator owns.
 
 Nothing ships until this is green.
 
-- [ ] Parity test: the same digest signed on a device and through the interposed simulator both verify under the same P-256 verifier, and the `SecKey` API behaves identically across them
-- [ ] Fence test: a release build sets no env var and bundles no dylib, and with the var unset the simulator shows the stock failing-SE behavior, which proves the app isn't coupled to the tool
-- [ ] Hook unit tests: the backend installs the hooks, and the passthrough invariant holds
-- [ ] A self-hosted bare-metal Apple Silicon runner for the hardware CI lane (hosted runners are VMs with no SEP, so they can't do this)
-- [ ] A security review of the interposer and the channel
+- [x] Parity test: the host half is green. The same digest verifies under an independent P-256 verifier (CryptoKit, its own DER parser) as well as the framework one, the DER carries exactly two 32-byte scalars, and the exported key imports into an independent implementation (`ParityTests`, `docs/parity.md`). The device half, the same assertions against a signature captured on real hardware, is the device-capture run in `docs/parity.md` and needs a device
+- [x] Fence test: the static fence (`scripts/fence-check.sh`, on every PR and push) asserts injection is debug-scheme-only, no project artifact bundles the dylib, and the injection variable stays in a reviewed allowlist, with a `--bundle` scan for the release artifact; the runtime fence (`run-mechanism-d.sh`) asserts an uninjected and an unconfigured-injection run both show the stock failing-SE behavior while the configured run verifies
+- [x] Hook unit tests: the backend installs the hooks (`hook_smoke`) and the passthrough invariant holds (`passthrough` ctest)
+- [ ] A self-hosted bare-metal Apple Silicon runner for the hardware CI lane (hosted runners are VMs with no SEP). The lane needs an unlocked login session: the SEP refuses keygen with `errSecInteractionNotAllowed` when the session is locked, which is also the M5 signed-helper constraint
+- [x] A security review of the interposer and the channel: two independent adversarial passes (`docs/security-review-m4.md`); every blocking finding fixed and regression-tested, including a pre-auth decoder crash from a hostile CBOR length, fixed in both codecs
 
-Done when parity is green on both a real device and the sim, the fence is green on a release build, and the security review is signed off.
+Done when parity is green on both a real device and the sim, the fence is green on a release build, and the security review is signed off. The sim-side parity, the fence, the hook tests, and the security review are done; the release gate stays open on the on-device parity capture (which also clears the `device-confirm` error-code and attribute flags) and the self-hosted runner. The code is documented to the production standard (`make docs`, Doxygen for C and doc comments for Swift) along the way.
 
 ### M5: ship 1.0
 
