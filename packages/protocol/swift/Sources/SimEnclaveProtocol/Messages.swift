@@ -97,7 +97,7 @@ public enum Wire {
 
     /// Encode a request, carrying the capability token in key 7. The token rides
     /// every request; the helper validates it before interpreting the op.
-    public static func encode(_ request: Request, token: Data) -> Data {
+    public static func encode(_ request: Request, token: Data, appID: String? = nil) -> Data {
         var writer = CBORWriter()
         switch request {
         case let .hello(version):
@@ -106,28 +106,23 @@ public enum Wire {
             writer.uint(keyToken); writer.bytes(token)
             writer.uint(keyVersion); writer.uint(version)
         case let .generate(keyClass, accessControl):
+            // op and token, then key 9 if biometry, the access control (11, 12) if
+            // present, and the app id (14) if present, all keys ascending. The no-app-id
+            // shapes keep the exact bytes the M0 through M2 interposer sends.
+            let biometry = keyClass == .biometry
+            var count = 2
+            if biometry { count += 1 }
+            if accessControl != nil { count += 2 }
+            if appID != nil { count += 1 }
+            writer.mapHeader(count)
+            writer.uint(keyOp); writer.uint(opGenerate)
+            writer.uint(keyToken); writer.bytes(token)
+            if biometry { writer.uint(keyClassKey); writer.uint(KeyClass.biometry.rawValue) }
             if let ac = accessControl {
-                // With an access control: op, token, key 9 if biometry, then the raw
-                // flags (11) and the protection (12), keys ascending.
-                let biometry = keyClass == .biometry
-                writer.mapHeader(biometry ? 5 : 4)
-                writer.uint(keyOp); writer.uint(opGenerate)
-                writer.uint(keyToken); writer.bytes(token)
-                if biometry { writer.uint(keyClassKey); writer.uint(KeyClass.biometry.rawValue) }
                 writer.uint(keyAccessFlags); writer.uint(ac.flags)
                 writer.uint(keyProtection); writer.text(ac.protection)
-            } else if keyClass == .silent {
-                // A silent key with no access control omits key 9, keeping the bytes the
-                // M0 interposer sends.
-                writer.mapHeader(2)
-                writer.uint(keyOp); writer.uint(opGenerate)
-                writer.uint(keyToken); writer.bytes(token)
-            } else {
-                writer.mapHeader(3)
-                writer.uint(keyOp); writer.uint(opGenerate)
-                writer.uint(keyToken); writer.bytes(token)
-                writer.uint(keyClassKey); writer.uint(keyClass.rawValue)
             }
+            if let appID { writer.uint(keyAppID); writer.text(appID) }
         case let .getPublicKey(handle):
             writer.mapHeader(3)
             writer.uint(keyOp); writer.uint(opGetPublicKey)
@@ -159,6 +154,13 @@ public enum Wire {
     /// AuthGate can reject without interpreting the operation.
     public static func token(in payload: Data) throws -> Data {
         try CBORMap(decoding: payload).bytes(keyToken)
+    }
+
+    /// The interposer-reported app id from a request, key 14, if present. Read alongside
+    /// the token to drive the approval prompt; it is guest-reported, so it names the app
+    /// but gates nothing.
+    public static func appID(in payload: Data) -> String? {
+        (try? CBORMap(decoding: payload))?.optionalText(keyAppID)
     }
 
     public static func decodeRequest(_ payload: Data) throws -> Request {

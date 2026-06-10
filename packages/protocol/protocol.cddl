@@ -40,7 +40,10 @@ hello-request = {
 generate-request = {
   0 => 2,                ; op = GENERATE
   7 => token,
-  9 => key-class,
+  ? 9 => 1,              ; biometry; a silent key omits the key
+  ? 11 => uint,          ; access-control flags, verbatim from SecAccessControlCreateWithFlags
+  ? 12 => tstr,          ; protection class as text, e.g. "ak", relayed verbatim
+  ? 14 => tstr,          ; calling app's bundle id, for the approval prompt (not a boundary)
 }
 
 get-pubkey-request = {

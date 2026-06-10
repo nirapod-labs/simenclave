@@ -8,6 +8,7 @@ enum OSStatusCode {
     static let authFailed: Int64 = -25293 // errSecAuthFailed
     static let itemNotFound: Int64 = -25300 // errSecItemNotFound
     static let internalError: Int64 = -2070 // errSecInternalComponent
+    static let userCanceled: Int64 = -128 // errSecUserCanceled, for an approval denial
 }
 
 /// Turns a request into a response by driving the Mac Secure Enclave, behind the
@@ -17,10 +18,12 @@ enum OSStatusCode {
 public struct RequestRouter: Sendable {
     private let service: SecureEnclaveService
     private let gate: AuthGate
+    private let approval: ApprovalGate?
 
-    public init(service: SecureEnclaveService, gate: AuthGate) {
+    public init(service: SecureEnclaveService, gate: AuthGate, approval: ApprovalGate? = nil) {
         self.service = service
         self.gate = gate
+        self.approval = approval
     }
 
     /// Validate the token, then dispatch. The gate runs before the operation is
@@ -31,6 +34,12 @@ public struct RequestRouter: Sendable {
               gate.accepts(presented)
         else {
             return .failure(code: OSStatusCode.authFailed, message: "invalid capability token")
+        }
+        // The approval prompt: a request carrying an app id (a generate from the
+        // interposer) is checked against the in-session approval set, naming the app. A
+        // convenience over the token, not a boundary; absent an approver it proceeds.
+        if let approval, let appID = Wire.appID(in: payload), !approval.proceed(appID: appID) {
+            return .failure(code: OSStatusCode.userCanceled, message: "app not approved: \(appID)")
         }
         do {
             return handle(try Wire.decodeRequest(payload))

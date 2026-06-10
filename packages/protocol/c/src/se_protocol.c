@@ -89,22 +89,29 @@ static void w_bytes(writer *w, uint8_t major, const uint8_t *data, size_t len) {
   w->pos += len;
 }
 
-int se_encode_generate(const uint8_t *token, size_t token_len, uint8_t *out, size_t cap) {
+int se_encode_generate(const uint8_t *token, size_t token_len, const uint8_t *app_id,
+                       size_t app_id_len, uint8_t *out, size_t cap) {
   writer w = {out, cap, 0, 0};
-  w_head(&w, CBOR_MAP, 2); // map(2)
+  int has_app = app_id && app_id_len > 0;
+  w_head(&w, CBOR_MAP, has_app ? 3 : 2);
   w_head(&w, CBOR_UINT, K_OP);
   w_head(&w, CBOR_UINT, OP_GENERATE);
   w_head(&w, CBOR_UINT, K_TOKEN);
   w_bytes(&w, CBOR_BYTES, token, token_len);
+  if (has_app) {
+    w_head(&w, CBOR_UINT, K_APP_ID);
+    w_bytes(&w, CBOR_TEXT, app_id, app_id_len);
+  }
   return w.overflow ? -1 : (int)w.pos;
 }
 
 int se_encode_generate_ac(const uint8_t *token, size_t token_len, int biometry, uint64_t flags,
-                          const uint8_t *protection, size_t protection_len, uint8_t *out,
-                          size_t cap) {
+                          const uint8_t *protection, size_t protection_len, const uint8_t *app_id,
+                          size_t app_id_len, uint8_t *out, size_t cap) {
   writer w = {out, cap, 0, 0};
-  // map: op, token, [class if biometry], accessFlags, protection. Keys ascending.
-  w_head(&w, CBOR_MAP, biometry ? 5 : 4);
+  int has_app = app_id && app_id_len > 0;
+  // map: op, token, [class if biometry], accessFlags, protection, [app id]. Keys ascending.
+  w_head(&w, CBOR_MAP, (biometry ? 5 : 4) + (has_app ? 1 : 0));
   w_head(&w, CBOR_UINT, K_OP);
   w_head(&w, CBOR_UINT, OP_GENERATE);
   w_head(&w, CBOR_UINT, K_TOKEN);
@@ -117,6 +124,10 @@ int se_encode_generate_ac(const uint8_t *token, size_t token_len, int biometry, 
   w_head(&w, CBOR_UINT, flags);
   w_head(&w, CBOR_UINT, K_PROTECTION);
   w_bytes(&w, CBOR_TEXT, protection, protection_len);
+  if (has_app) {
+    w_head(&w, CBOR_UINT, K_APP_ID);
+    w_bytes(&w, CBOR_TEXT, app_id, app_id_len);
+  }
   return w.overflow ? -1 : (int)w.pos;
 }
 

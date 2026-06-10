@@ -41,7 +41,7 @@ int main(void) {
         "hello negotiates v1");
 
   se_response gen;
-  CHECK(se_client_generate(&gen) == SE_OK && gen.kind == SE_RESP_GENERATED, "generate");
+  CHECK(se_client_generate(NULL, 0, &gen) == SE_OK && gen.kind == SE_RESP_GENERATED, "generate");
   if (fails) {
     printf("CLIENT ROUNDTRIP: helper unreachable?\n");
     return 1;

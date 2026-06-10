@@ -36,6 +36,19 @@ final class WireTests: XCTestCase {
         XCTAssertEqual(try Wire.decodeRequest(Wire.encode(silent, token: token)), silent)
     }
 
+    func testGenerateCarriesAppID() throws {
+        let token = Data(repeating: 0xAB, count: 32)
+        let payload = Wire.encode(.generate(keyClass: .silent), token: token, appID: "hi")
+        // map(3) { 0:2, 7:token, 14:"hi" }, ending 0E 62 'h' 'i'.
+        XCTAssertEqual(payload.first, 0xA3)
+        XCTAssertEqual(payload.suffix(4), Data([0x0E, 0x62, 0x68, 0x69]))
+        XCTAssertEqual(Wire.appID(in: payload), "hi")
+        // No app id keeps the bare bytes and a nil app id.
+        let bare = Wire.encode(.generate(keyClass: .silent), token: token)
+        XCTAssertEqual(bare.first, 0xA2)
+        XCTAssertNil(Wire.appID(in: bare))
+    }
+
     func testSignRequestRoundTrips() throws {
         let handle = Data((0 ..< 16).map { UInt8($0) })
         let digest = Data(repeating: 0x5A, count: 32)
