@@ -16,10 +16,19 @@ enum {
   K_SIG = 5,
   K_ERR = 6,
   K_TOKEN = 7,
+  K_VERSION = 8,
   K_ERR_CODE = 10,
 };
 // ops and status
-enum { OP_GENERATE = 2, OP_GET_PUBKEY = 3, OP_SIGN = 4, OP_DELETE = 5, ST_OK = 0, ST_ERROR = 1 };
+enum {
+  OP_HELLO = 1,
+  OP_GENERATE = 2,
+  OP_GET_PUBKEY = 3,
+  OP_SIGN = 4,
+  OP_DELETE = 5,
+  ST_OK = 0,
+  ST_ERROR = 1
+};
 // CBOR major types (RFC 8949 3.1): uint, negative int, byte string, text, map
 enum { CBOR_UINT = 0, CBOR_NEGINT = 1, CBOR_BYTES = 2, CBOR_TEXT = 3, CBOR_MAP = 5 };
 
@@ -119,6 +128,19 @@ int se_encode_get_pubkey(const uint8_t *token, size_t token_len, const uint8_t *
 int se_encode_delete(const uint8_t *token, size_t token_len, const uint8_t *handle,
                      size_t handle_len, uint8_t *out, size_t cap) {
   return encode_handle_op(OP_DELETE, token, token_len, handle, handle_len, out, cap);
+}
+
+int se_encode_hello(const uint8_t *token, size_t token_len, uint64_t version, uint8_t *out,
+                    size_t cap) {
+  writer w = {out, cap, 0, 0};
+  w_head(&w, CBOR_MAP, 3); // map(3): op, token, version
+  w_head(&w, CBOR_UINT, K_OP);
+  w_head(&w, CBOR_UINT, OP_HELLO);
+  w_head(&w, CBOR_UINT, K_TOKEN);
+  w_bytes(&w, CBOR_BYTES, token, token_len);
+  w_head(&w, CBOR_UINT, K_VERSION);
+  w_head(&w, CBOR_UINT, version);
+  return w.overflow ? -1 : (int)w.pos;
 }
 
 typedef struct {
@@ -278,6 +300,12 @@ se_status se_decode_response(const uint8_t *payload, size_t len, se_response *ou
   }
   if (op->uintval == OP_DELETE) {
     out->kind = SE_RESP_DELETED;
+    return SE_OK;
+  }
+  if (op->uintval == OP_HELLO) {
+    out->kind = SE_RESP_HELLO;
+    const entry *ver = find(entries, count, K_VERSION);
+    out->version = (ver && ver->major == CBOR_UINT) ? ver->uintval : 0;
     return SE_OK;
   }
   return SE_ERR_OPCODE;

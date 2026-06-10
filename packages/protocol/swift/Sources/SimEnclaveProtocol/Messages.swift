@@ -10,6 +10,7 @@ public enum KeyClass: UInt64, Sendable {
 
 /// A request from the interposer to the helper.
 public enum Request: Equatable {
+    case hello(version: UInt64)
     case generate(keyClass: KeyClass)
     case getPublicKey(handle: Data)
     case sign(handle: Data, digest: Data)
@@ -18,6 +19,7 @@ public enum Request: Equatable {
 
 /// A reply from the helper to the interposer.
 public enum Response: Equatable {
+    case hello(version: UInt64)
     case generated(handle: Data, publicKey: Data)
     case publicKey(Data)
     case signed(signature: Data)
@@ -28,12 +30,14 @@ public enum Response: Equatable {
 /// The version-1 message codec: a CBOR map in and out (see `SPEC.md`). Socket
 /// I/O and framing live elsewhere; this is the pure payload layer.
 public enum Wire {
+    static let opHello: UInt64 = 1
     static let opGenerate: UInt64 = 2
     static let opGetPublicKey: UInt64 = 3
     static let opSign: UInt64 = 4
     static let opDelete: UInt64 = 5
     static let statusOK: UInt64 = 0
     static let statusError: UInt64 = 1
+    public static let version1: UInt64 = 1
 
     static let keyOp: UInt64 = 0
     static let keyStatus: UInt64 = 1
@@ -43,6 +47,7 @@ public enum Wire {
     static let keySignature: UInt64 = 5
     static let keyError: UInt64 = 6
     static let keyToken: UInt64 = 7
+    static let keyVersion: UInt64 = 8
     static let keyClassKey: UInt64 = 9
     static let keyErrorCode: UInt64 = 10
 
@@ -51,6 +56,11 @@ public enum Wire {
     public static func encode(_ request: Request, token: Data) -> Data {
         var writer = CBORWriter()
         switch request {
+        case let .hello(version):
+            writer.mapHeader(3)
+            writer.uint(keyOp); writer.uint(opHello)
+            writer.uint(keyToken); writer.bytes(token)
+            writer.uint(keyVersion); writer.uint(version)
         case let .generate(keyClass):
             // A silent key omits key 9, keeping the bytes the M0 interposer sends;
             // a biometry key adds it.
@@ -93,6 +103,8 @@ public enum Wire {
     public static func decodeRequest(_ payload: Data) throws -> Request {
         let map = try CBORMap(decoding: payload)
         switch try map.uint(keyOp) {
+        case opHello:
+            return .hello(version: try map.uint(keyVersion))
         case opGenerate:
             return .generate(keyClass: KeyClass(rawValue: map.optionalUint(keyClassKey) ?? 0) ?? .silent)
         case opGetPublicKey:
@@ -109,6 +121,11 @@ public enum Wire {
     public static func encode(_ response: Response) -> Data {
         var writer = CBORWriter()
         switch response {
+        case let .hello(version):
+            writer.mapHeader(3)
+            writer.uint(keyOp); writer.uint(opHello)
+            writer.uint(keyStatus); writer.uint(statusOK)
+            writer.uint(keyVersion); writer.uint(version)
         case let .generated(handle, publicKey):
             writer.mapHeader(4)
             writer.uint(keyOp); writer.uint(opGenerate)
@@ -147,6 +164,8 @@ public enum Wire {
         }
         guard status == statusOK else { throw ProtocolError.badStatus(status) }
         switch try map.uint(keyOp) {
+        case opHello:
+            return .hello(version: try map.uint(keyVersion))
         case opGenerate:
             return .generated(handle: try map.bytes(keyHandle), publicKey: try map.bytes(keyPublicKey))
         case opGetPublicKey:
