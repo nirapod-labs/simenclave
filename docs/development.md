@@ -49,6 +49,18 @@ The Microsoft C/C++ extension is listed under `unwantedRecommendations`, because
 
 The interposer's hook backend is Dobby, pinned in the root `CMakeLists.txt` and fetched by CMake's FetchContent into each build tree. There is no separate vendoring step and nothing to commit.
 
+## App icons
+
+Two Icon Composer bundles live in [`assets/`](../assets). `simenclave.icon` is the regular mark the menubar helper wears; `simenclave-dev.icon` is the dimmed dev variant for the example apps, so a dev build never passes for the real helper on your Dock.
+
+<p align="center">
+  <img alt="SimEnclave helper icon" src="../assets/squircles/app-icon-squircle.png" width="96">
+  &nbsp;&nbsp;&nbsp;
+  <img alt="SimEnclave example-app icon" src="../assets/squircles/app-icon-dev-squircle.png" width="96">
+</p>
+
+`actool` compiles both. `scripts/build-menubar-app.sh` bakes the regular icon into `SimEnclave.app`; the example app's `project.yml` points `ASSETCATALOG_COMPILER_APPICON_NAME` at the dev bundle. The 1024 px masters, the wordmark and brand mark, and the GitHub banner and social-preview art share the same directory.
+
 ## Conventions
 
 PR-driven, conventional commits (`.commitlintrc.json`), and the formatters above, all enforced by the lefthook hooks. See [CONTRIBUTING.md](../CONTRIBUTING.md).
