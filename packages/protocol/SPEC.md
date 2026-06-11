@@ -41,7 +41,7 @@ contains the token.
 `HELLO` is authenticated too. There is no unauthenticated operation, so an
 endpoint that cannot present the token cannot even probe the helper's version.
 The token model, its lifetime, and what it does and does not defend against are
-in `docs/design/m1-helper.md` and `SECURITY.md`. The wire only needs to carry it
+in `SECURITY.md`. The wire only needs to carry it
 and the helper only needs to check it.
 
 ## Payload

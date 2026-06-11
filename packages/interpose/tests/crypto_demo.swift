@@ -2,8 +2,8 @@
 // in the simulator even with no interposer and no helper, which shows it falls back
 // to a software key rather than bottoming out in the hooked SecKey Secure Enclave
 // path. Contrast sim_demo.c with run-mechanism-d.sh, where the SecKey C API
-// genuinely fails without the bridge. See docs/design/m2-interposer.md, the
-// CryptoKit section, and run-cryptokit-probe.sh.
+// genuinely fails without the bridge. See run-cryptokit-probe.sh, which probes
+// this CryptoKit fallback directly.
 import CryptoKit
 import Foundation
 

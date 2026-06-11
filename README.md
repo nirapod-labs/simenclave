@@ -6,9 +6,11 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
-  <img alt="Platform" src="https://img.shields.io/badge/platform-iOS%20Simulator%20%C2%B7%20macOS-lightgrey.svg">
-  <a href="ROADMAP.md"><img alt="Status: early" src="https://img.shields.io/badge/status-early-orange.svg"></a>
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square"></a>
+  <img alt="Swift" src="https://img.shields.io/badge/Swift-F05138?style=flat-square&logo=swift&logoColor=white">
+  <img alt="C" src="https://img.shields.io/badge/C-A8B9CC?style=flat-square&logo=c&logoColor=white">
+  <img alt="Platform: iOS Simulator and macOS" src="https://img.shields.io/badge/Platform-iOS_Simulator_%C2%B7_macOS-lightgrey?style=flat-square&logo=apple&logoColor=white">
+  <a href="https://github.com/nirapod-labs/simenclave/releases"><img alt="Status: pre-release" src="https://img.shields.io/badge/Status-pre--release-orange?style=flat-square"></a>
 </p>
 
 # SimEnclave
@@ -17,7 +19,7 @@ SimEnclave gives the iOS Simulator a real Secure Enclave. It injects a small int
 
 It exists because the iOS Simulator has no Secure Enclave. That means the one thing hardware-backed signing depends on, a key that never leaves the chip, can't run where you develop all day. So every change to a signing path forces you onto a physical device. SimEnclave fixes that without weakening the security property and without ever becoming something that could ship.
 
-> **Status: early.** The design is settled and the code is landing milestone by milestone. v1.0 is targeted for end of July 2026. See [ROADMAP.md](ROADMAP.md).
+> **Status: approaching 1.0.** The mechanism is settled and proven; what's left is release hardening. Targeting v1.0 by end of July 2026.
 
 ## How it works
 
@@ -103,7 +105,11 @@ PR-driven. Branch off `main`, keep the change focused, open a pull request, and 
 
 ## Security
 
-SimEnclave operates only on your own Mac's Secure Enclave keys, in the Simulator, and never on a real user's keys or funds. The threat model, the channel's authentication, and the fence are in [SECURITY.md](SECURITY.md). If you find something security-relevant, raise it with the maintainers privately until a disclosure address is published here.
+SimEnclave operates only on your own Mac's Secure Enclave keys, in the Simulator, and never on a real user's keys or funds. The threat model, the channel's authentication, and the fence are in [SECURITY.md](SECURITY.md). Found something security-relevant? Report it through GitHub's private vulnerability reporting; SECURITY.md has the steps.
+
+## Who builds it
+
+SimEnclave is built by [Nirapod Labs](https://github.com/nirapod-labs). It came out of building Nirapod, a non-custodial wallet whose security rests on keys that live in hardware and never leave it. That path, the one you most want to exercise on every change, is the one the Simulator can't run, so testing it meant reaching for a physical device every time. So we built the tool we wanted instead: real hardware-backed signing in the Simulator, behind a fence that keeps it from ever following the code into production. It's useful to anyone whose iOS app touches the Secure Enclave, which is why it's open source.
 
 ## License
 

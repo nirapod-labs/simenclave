@@ -44,4 +44,4 @@ Why an interposer and not a registered provider: a camera can be a virtual devic
 - Conventional commits, enforced by commitlint (`.commitlintrc.json`): the type and scope are restricted to the lists there, and the subject is lowercase and at most 50 characters. CI runs commitlint on every PR. A squash merge uses the PR title as the subject and GitHub appends ` (#N)`, so the PR title itself must be a valid conventional subject of about 45 characters.
 - Formatting: Swift via swiftformat and swiftlint, C via clang-format and clang-tidy, JS and JSON via biome.
 
-See `ROADMAP.md` for the milestone plan and `SECURITY.md` for the dev-only scope and the fence.
+See `SECURITY.md` for the dev-only scope and the fence.

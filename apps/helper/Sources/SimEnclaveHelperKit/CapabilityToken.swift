@@ -8,7 +8,7 @@ import Security
 #endif
 
 /// The per-session capability token: 32 random bytes that gate every request to
-/// the helper (see docs/design/m1-helper.md). The bytes are the credential; the
+/// the helper (see SECURITY.md). The bytes are the credential; the
 /// hex form, in the token file and the scheme environment, is only transport.
 public struct CapabilityToken: Equatable, Sendable {
     /// Token length in bytes; the gate compares exactly this many.
