@@ -145,10 +145,18 @@ static size_t current_app_id(char *buf, size_t cap) {
 static size_t current_app_display_name(char *buf, size_t cap) {
   CFBundleRef bundle = CFBundleGetMainBundle();
   if (!bundle) return 0;
-  CFTypeRef name = CFBundleGetValueForInfoDictionaryKey(bundle, CFSTR("CFBundleDisplayName"));
-  if (!name) name = CFBundleGetValueForInfoDictionaryKey(bundle, kCFBundleNameKey);
+  // Read the info dictionaries directly: the localized one holds the name the app shows on the
+  // home screen, then the unlocalized display name, then the bundle name. This resolves the name
+  // for apps where CFBundleGetValueForInfoDictionaryKey does not surface CFBundleDisplayName.
+  CFTypeRef name = NULL;
+  CFDictionaryRef localized = CFBundleGetLocalInfoDictionary(bundle);
+  if (localized) name = CFDictionaryGetValue(localized, CFSTR("CFBundleDisplayName"));
+  CFDictionaryRef info = CFBundleGetInfoDictionary(bundle);
+  if (!name && info) name = CFDictionaryGetValue(info, CFSTR("CFBundleDisplayName"));
+  if (!name && info) name = CFDictionaryGetValue(info, kCFBundleNameKey);
   if (name && CFGetTypeID(name) == CFStringGetTypeID() &&
-      CFStringGetCString((CFStringRef)name, buf, (CFIndex)cap, kCFStringEncodingUTF8)) {
+      CFStringGetCString((CFStringRef)name, buf, (CFIndex)cap, kCFStringEncodingUTF8) &&
+      buf[0] != '\0') {
     return strlen(buf);
   }
   return 0;

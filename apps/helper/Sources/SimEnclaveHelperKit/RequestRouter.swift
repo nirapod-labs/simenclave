@@ -66,8 +66,9 @@ public struct RequestRouter: Sendable {
         // or key bytes. The observer gets the same plus the sanitized display name, for a live UI.
         let label = Self.label(request)
         let displayName = Self.sanitizedDisplayName(Wire.appDisplayName(in: payload))
-        FileHandle.standardError.write(
-            Data("[helper] served \(label)\(appID.map { " app=\($0)" } ?? "")\n".utf8))
+        let line = "[helper] served \(label)" + (appID.map { " app=\($0)" } ?? "")
+            + (displayName.map { " name=\($0)" } ?? "") + "\n"
+        FileHandle.standardError.write(Data(line.utf8))
         let response = handle(request)
         // Reported after handling, carrying the key handle the op created or removed, so the UI
         // tracks a live per-app count: the minted handle on a successful GENERATE, the removed
