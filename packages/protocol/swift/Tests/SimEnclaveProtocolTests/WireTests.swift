@@ -172,6 +172,20 @@ final class WireTests: XCTestCase {
         XCTAssertEqual(try Wire.token(in: payload), token)
     }
 
+    func testFindByTagRequestScopesByApp() throws {
+        let token = Data(repeating: 0xAB, count: 32)
+        let request = Request.findByTag(appTag: Data([0x01, 0x02]), udid: "AB")
+        let payload = Wire.encode(request, token: token, appID: "a")
+        // map(5) { 0: 6, 7: token, 14: "a", 15: "AB", 16: appTag }, keys ascending. The 11-byte tail
+        // after the 38-byte op+token head matches the C codec's app-scoped find_by_tag bytes.
+        XCTAssertEqual(payload.first, 0xA5)
+        XCTAssertEqual(payload.suffix(11),
+                       Data([0x0E, 0x61, 0x61, 0x0F, 0x62, 0x41, 0x42, 0x10, 0x42, 0x01, 0x02]))
+        XCTAssertEqual(Wire.appID(in: payload), "a")
+        // The op still decodes as the same find-by-tag request; the app id is read out of band.
+        XCTAssertEqual(try Wire.decodeRequest(payload), request)
+    }
+
     func testFoundResponseRoundTrips() throws {
         let handle = Data(repeating: 0xCD, count: 16)
         let publicKey = Data([0x04] + (0 ..< 64).map { UInt8($0) })

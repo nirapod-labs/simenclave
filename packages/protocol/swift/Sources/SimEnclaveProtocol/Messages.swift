@@ -294,17 +294,21 @@ public enum Wire {
             writer.uint(keyHandle); writer.bytes(handle)
             writer.uint(keyToken); writer.bytes(token)
         case let .findByTag(appTag, udid):
-            // map(4) { 0: 6, 7: token, 15: udid, 16: appTag }, keys ascending.
-            writer.mapHeader(4)
+            // map { 0: 6, 7: token, 14: appID?, 15: udid, 16: appTag }, keys ascending. The app id
+            // scopes the lookup to the calling app, so two apps on one simulator stay isolated.
+            writer.mapHeader(appID != nil ? 5 : 4)
             writer.uint(keyOp); writer.uint(opFindByTag)
             writer.uint(keyToken); writer.bytes(token)
+            if let appID { writer.uint(keyAppID); writer.text(appID) }
             writer.uint(keyUDID); writer.text(udid)
             writer.uint(keyAppTag); writer.bytes(appTag)
         case let .listKeys(udid):
-            // map(3) { 0: 7, 7: token, 15: udid }, keys ascending.
-            writer.mapHeader(3)
+            // map { 0: 7, 7: token, 14: appID?, 15: udid }, keys ascending. The app id scopes the
+            // enumeration to the calling app.
+            writer.mapHeader(appID != nil ? 4 : 3)
             writer.uint(keyOp); writer.uint(opListKeys)
             writer.uint(keyToken); writer.bytes(token)
+            if let appID { writer.uint(keyAppID); writer.text(appID) }
             writer.uint(keyUDID); writer.text(udid)
         case let .isAlgorithmSupported(handle, operation, algorithm):
             // map(5) { 0: 8, 2: handle, 7: token, 18: operation, 19: algorithm }, keys ascending.
@@ -338,11 +342,12 @@ public enum Wire {
             writer.uint(keyPeerKey); writer.bytes(peerPublicKey)
             writer.uint(keyParameters); writer.bytes(parameters)
         case let .updateTag(handle, appTag, udid):
-            // map(5) { 0: 12, 2: handle, 7: token, 15: udid, 16: appTag }, keys ascending.
-            writer.mapHeader(5)
+            // map { 0: 12, 2: handle, 7: token, 14: appID?, 15: udid, 16: appTag }, ascending.
+            writer.mapHeader(appID != nil ? 6 : 5)
             writer.uint(keyOp); writer.uint(opUpdate)
             writer.uint(keyHandle); writer.bytes(handle)
             writer.uint(keyToken); writer.bytes(token)
+            if let appID { writer.uint(keyAppID); writer.text(appID) }
             writer.uint(keyUDID); writer.text(udid)
             writer.uint(keyAppTag); writer.bytes(appTag)
         }
