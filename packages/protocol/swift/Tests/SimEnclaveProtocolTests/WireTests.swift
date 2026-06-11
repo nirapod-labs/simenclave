@@ -54,27 +54,22 @@ final class WireTests: XCTestCase {
 
     func testHelloCarriesIdentity() throws {
         let token = Data(repeating: 0xAB, count: 32)
-        let icon = Data([0x01, 0x02])
-        let payload = Wire.encode(.hello(version: 1), token: token,
-                                  appID: "a", displayName: "App", appIcon: icon)
-        // map(6): op, token, version, then app id (14), display name (28), icon (29) ascending.
-        // Tail after the 40-byte base: 0E 61 'a', 18 1C 63 'A' 'p' 'p', 18 1D 42 01 02. These
-        // bytes match the C codec's se_encode_hello identity case, the two codecs' shared oracle.
-        XCTAssertEqual(payload.first, 0xA6)
-        XCTAssertEqual(payload.suffix(14),
-                       Data([0x0E, 0x61, 0x61, 0x18, 0x1C, 0x63, 0x41, 0x70, 0x70,
-                             0x18, 0x1D, 0x42, 0x01, 0x02]))
+        let payload = Wire.encode(.hello(version: 1), token: token, appID: "a", displayName: "App")
+        // map(5): op, token, version, then app id (14) and display name (28) ascending. Tail after
+        // the 40-byte base: 0E 61 'a', 18 1C 63 'A' 'p' 'p'. These bytes match the C codec's
+        // se_encode_hello identity case, the two codecs' shared oracle.
+        XCTAssertEqual(payload.first, 0xA5)
+        XCTAssertEqual(payload.suffix(9),
+                       Data([0x0E, 0x61, 0x61, 0x18, 0x1C, 0x63, 0x41, 0x70, 0x70]))
         XCTAssertEqual(Wire.appID(in: payload), "a")
         XCTAssertEqual(Wire.appDisplayName(in: payload), "App")
-        XCTAssertEqual(Wire.appIcon(in: payload), icon)
         // The op still decodes as a plain version-1 hello; identity is read out of band.
         XCTAssertEqual(try Wire.decodeRequest(payload), .hello(version: 1))
-        // A bare HELLO is byte-identical to before and every identity reader returns nil.
+        // A bare HELLO is byte-identical to before and the identity readers return nil.
         let bare = Wire.encode(.hello(version: 1), token: token)
         XCTAssertEqual(bare.first, 0xA3)
         XCTAssertNil(Wire.appID(in: bare))
         XCTAssertNil(Wire.appDisplayName(in: bare))
-        XCTAssertNil(Wire.appIcon(in: bare))
     }
 
     func testSignRequestRoundTrips() throws {

@@ -89,7 +89,8 @@ struct MenubarView: View {
             } else {
                 ForEach(model.apps) { app in
                     HStack(spacing: 10) {
-                        appIcon(for: app).frame(width: 22, height: 22)
+                        Image(systemName: "app.dashed").foregroundStyle(.tint)
+                            .frame(width: 22, height: 22)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(app.name ?? app.id)
                                 .font(.caption.weight(.medium)).lineLimit(1).truncationMode(.middle)
@@ -101,17 +102,6 @@ struct MenubarView: View {
             }
         }
         .padding(12)
-    }
-
-    /// The connecting app's real icon when one was announced and validated, else a generic symbol.
-    @ViewBuilder
-    private func appIcon(for app: AppActivity) -> some View {
-        if let data = app.iconPNG, let image = NSImage(data: data) {
-            Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
-        } else {
-            Image(systemName: "iphone").foregroundStyle(.tint)
-        }
     }
 
     private var footer: some View {

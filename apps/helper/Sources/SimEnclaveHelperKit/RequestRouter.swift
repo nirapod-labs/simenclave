@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: 2026 Nirapod Labs
 
 import Foundation
-import ImageIO
 import SimEnclaveHostCore
 import SimEnclaveProtocol
 
@@ -67,32 +66,15 @@ public struct RequestRouter: Sendable {
         // or key bytes. The observer gets the same plus the sanitized display name, for a live UI.
         let label = Self.label(request)
         let displayName = Self.sanitizedDisplayName(Wire.appDisplayName(in: payload))
-        let iconPNG = Self.validatedIcon(Wire.appIcon(in: payload))
         FileHandle.standardError.write(
             Data("[helper] served \(label)\(appID.map { " app=\($0)" } ?? "")\n".utf8))
         let response = handle(request)
         // Reported after handling, carrying the key handle the op created or removed, so the UI
         // tracks a live per-app count: the minted handle on a successful GENERATE, the removed
         // handle on a DELETE.
-        observer?.served(op: label, appID: appID, displayName: displayName, iconPNG: iconPNG,
+        observer?.served(op: label, appID: appID, displayName: displayName,
                          handle: Self.affectedHandle(request: request, response: response))
         return response
-    }
-
-    /// Validate a guest-reported app icon before it reaches the UI. The bytes are hostile input,
-    /// so they must be a PNG, within the wire size cap, and within sane pixel dimensions, which
-    /// rejects both a channel flood and a decompression bomb. ImageIO reads the header without a
-    /// full decode. Returns the bytes when they pass, nil otherwise.
-    static func validatedIcon(_ raw: Data?) -> Data? {
-        guard let raw, !raw.isEmpty, raw.count <= Wire.maxAppIconBytes,
-              let source = CGImageSourceCreateWithData(raw as CFData, nil),
-              let uti = CGImageSourceGetType(source), (uti as String) == "public.png",
-              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let width = props[kCGImagePropertyPixelWidth] as? Int,
-              let height = props[kCGImagePropertyPixelHeight] as? Int,
-              width > 0, height > 0, width <= 256, height <= 256
-        else { return nil }
-        return raw
     }
 
     /// The key handle an op created or removed, for the live-count view: the minted handle from a

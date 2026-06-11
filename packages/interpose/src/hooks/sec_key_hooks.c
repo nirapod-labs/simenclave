@@ -23,7 +23,6 @@
 #include "../registry/access_control.h"
 #include "../registry/shadow_ref.h"
 #include "../transport/client.h"
-#include "app_icon.h"
 
 #include <Security/Security.h>
 #include <pthread.h>
@@ -156,20 +155,17 @@ static size_t current_app_display_name(char *buf, size_t cap) {
 }
 
 // Announce the connecting app's identity to the helper once per process, best-effort: a HELLO
-// carrying the bundle id and display name (the icon joins in a later slice). It is sent the first
-// time a Secure Enclave key is created, so the helper's connected-apps list can name the app. The
-// result is ignored; a failed announce never blocks the key work that follows.
+// carrying the bundle id and display name. It is sent the first time a Secure Enclave key is
+// created, so the helper's connected-apps list can name the app. The result is ignored; a failed
+// announce never blocks the key work that follows.
 static void announce_identity(void) {
   char app_id[256];
   size_t id_len = current_app_id(app_id, sizeof(app_id));
   char name[256];
   size_t name_len = current_app_display_name(name, sizeof(name));
-  uint8_t icon[8192];
-  size_t icon_len = se_copy_app_icon_png(icon, sizeof(icon));
   se_response resp;
   se_client_hello(1, id_len ? (const uint8_t *)app_id : NULL, id_len,
-                  name_len ? (const uint8_t *)name : NULL, name_len,
-                  icon_len ? icon : NULL, icon_len, &resp);
+                  name_len ? (const uint8_t *)name : NULL, name_len, &resp);
 }
 
 static void announce_identity_once(void) {

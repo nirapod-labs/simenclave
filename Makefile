@@ -36,8 +36,7 @@ configure: ## Configure both CMake build trees (host and iphonesimulator)
 	cmake -S . -B build -DCMAKE_OSX_ARCHITECTURES=arm64
 	cmake -S . -B build-sim -DSIMENCLAVE_SIM_SLICE=ON \
 	  -DCMAKE_OSX_SYSROOT="$(SIM_SDK)" -DCMAKE_OSX_ARCHITECTURES=arm64 \
-	  -DCMAKE_C_FLAGS="-target $(SIM_TARGET)" -DCMAKE_CXX_FLAGS="-target $(SIM_TARGET)" \
-	  -DCMAKE_OBJC_FLAGS="-target $(SIM_TARGET)"
+	  -DCMAKE_C_FLAGS="-target $(SIM_TARGET)" -DCMAKE_CXX_FLAGS="-target $(SIM_TARGET)"
 
 build: configure ## Build the native slices (cmake) and the Swift packages
 	cmake --build build -j
