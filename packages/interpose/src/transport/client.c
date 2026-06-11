@@ -300,12 +300,15 @@ se_status se_client_delete(const uint8_t *handle, size_t handle_len, se_response
       out);
 }
 
-se_status se_client_hello(uint64_t version, se_response *out) {
+se_status se_client_hello(uint64_t version, const uint8_t *app_id, size_t app_id_len,
+                          const uint8_t *display_name, size_t display_name_len,
+                          const uint8_t *app_icon, size_t app_icon_len, se_response *out) {
   uint8_t token[32];
   if (read_token(token) != 0) return SE_ERR_TRUNCATED;
-  uint8_t payload[128];
-  return do_request(payload,
-                    se_encode_hello(token, sizeof(token), version, NULL, 0, NULL, 0, NULL, 0,
-                                    payload, sizeof(payload)),
-                    out);
+  // Holds the token, version, the ids, and a small (downscaled) icon. The do_request frame is
+  // 8 KiB, so an icon large enough to overflow this simply fails the best-effort announce.
+  uint8_t payload[8192];
+  int n = se_encode_hello(token, sizeof(token), version, app_id, app_id_len, display_name,
+                          display_name_len, app_icon, app_icon_len, payload, sizeof(payload));
+  return do_request(payload, n, out);
 }

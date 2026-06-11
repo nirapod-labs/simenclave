@@ -25,6 +25,7 @@
 #include "../transport/client.h"
 
 #include <Security/Security.h>
+#include <pthread.h>
 #include <string.h>
 
 typedef SecKeyRef (*create_random_key_fn)(CFDictionaryRef, CFErrorRef *);
@@ -138,6 +139,40 @@ static size_t current_app_id(char *buf, size_t cap) {
   return 0;
 }
 
+// The guest app's display name (CFBundleDisplayName, falling back to CFBundleName), so the helper
+// can show the app by name rather than bundle id. Guest-reported and untrusted; the helper
+// sanitizes it. Returns the UTF-8 length, or 0 when there is no usable name.
+static size_t current_app_display_name(char *buf, size_t cap) {
+  CFBundleRef bundle = CFBundleGetMainBundle();
+  if (!bundle) return 0;
+  CFTypeRef name = CFBundleGetValueForInfoDictionaryKey(bundle, CFSTR("CFBundleDisplayName"));
+  if (!name) name = CFBundleGetValueForInfoDictionaryKey(bundle, kCFBundleNameKey);
+  if (name && CFGetTypeID(name) == CFStringGetTypeID() &&
+      CFStringGetCString((CFStringRef)name, buf, (CFIndex)cap, kCFStringEncodingUTF8)) {
+    return strlen(buf);
+  }
+  return 0;
+}
+
+// Announce the connecting app's identity to the helper once per process, best-effort: a HELLO
+// carrying the bundle id and display name (the icon joins in a later slice). It is sent the first
+// time a Secure Enclave key is created, so the helper's connected-apps list can name the app. The
+// result is ignored; a failed announce never blocks the key work that follows.
+static void announce_identity(void) {
+  char app_id[256];
+  size_t id_len = current_app_id(app_id, sizeof(app_id));
+  char name[256];
+  size_t name_len = current_app_display_name(name, sizeof(name));
+  se_response resp;
+  se_client_hello(1, id_len ? (const uint8_t *)app_id : NULL, id_len,
+                  name_len ? (const uint8_t *)name : NULL, name_len, NULL, 0, &resp);
+}
+
+static void announce_identity_once(void) {
+  static pthread_once_t once = PTHREAD_ONCE_INIT;
+  pthread_once(&once, announce_identity);
+}
+
 // Build a public SecKeyRef from a 65-byte uncompressed X9.63 point. The length
 // and 0x04 lead byte are validated so a malformed point fails closed (NULL),
 // never a half-built key.
@@ -191,6 +226,10 @@ static SecKeyRef hook_create_random_key(CFDictionaryRef parameters, CFErrorRef *
   if (!requests_secure_enclave(parameters)) {
     return orig_create_random_key(parameters, error);
   }
+
+  // First Secure Enclave create in the process: announce who we are so the helper can show the
+  // app in its connected list. Best-effort and once; never blocks the create.
+  announce_identity_once();
 
   // Read the app's access control, if it passed one whose policy was captured at its
   // source (the SecAccessControlCreateWithFlags hook). The flags pick the key class
