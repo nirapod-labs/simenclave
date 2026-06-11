@@ -46,26 +46,63 @@ public struct RequestRouter: Sendable {
         else {
             return .failure(code: OSStatusCode.authFailed, message: "invalid capability token")
         }
-        // The approval prompt: a request carrying an app id (a generate from the
-        // interposer) is checked against the in-session approval set, naming the app. A
-        // convenience over the token, not a boundary; absent an approver it proceeds.
-        if let approval, let appID = Wire.appID(in: payload), !approval.proceed(appID: appID) {
-            return .failure(code: OSStatusCode.userCanceled, message: "app not approved: \(appID)")
-        }
+        let request: Request
         do {
-            let request = try Wire.decodeRequest(payload)
-            // A per-request line on stderr, so a developer can watch the helper serve the
-            // Secure Enclave traffic an injected app drives. Naming only the op, never the
-            // token or key bytes. The observer gets the same, for a live UI.
-            let appID = Wire.appID(in: payload)
-            let label = Self.label(request)
-            FileHandle.standardError.write(
-                Data("[helper] served \(label)\(appID.map { " app=\($0)" } ?? "")\n".utf8))
-            observer?.served(op: label, appID: appID)
-            return handle(request)
+            request = try Wire.decodeRequest(payload)
         } catch {
             return .failure(code: OSStatusCode.internalError, message: String(describing: error))
         }
+        let appID = Wire.appID(in: payload)
+        // The approval prompt gates the key operations, not the identity-only HELLO announce: a
+        // request carrying an app id is checked against the in-session approval set, naming the
+        // app. A convenience over the token, not a boundary; absent an approver it proceeds.
+        if case .hello = request {
+            // the announce carries identity but does no key work, so it is never gated
+        } else if let approval, let appID, !approval.proceed(appID: appID) {
+            return .failure(code: OSStatusCode.userCanceled, message: "app not approved: \(appID)")
+        }
+        // A per-request line on stderr, so a developer can watch the helper serve the Secure
+        // Enclave traffic an injected app drives. Naming only the op and the app, never the token
+        // or key bytes. The observer gets the same plus the sanitized display name, for a live UI.
+        let label = Self.label(request)
+        let displayName = Self.sanitizedDisplayName(Wire.appDisplayName(in: payload))
+        let line = "[helper] served \(label)" + (appID.map { " app=\($0)" } ?? "")
+            + (displayName.map { " name=\($0)" } ?? "") + "\n"
+        FileHandle.standardError.write(Data(line.utf8))
+        let response = handle(request)
+        // Reported after handling, carrying the key handle the op created or removed, so the UI
+        // tracks a live per-app count: the minted handle on a successful GENERATE, the removed
+        // handle on a DELETE.
+        observer?.served(op: label, appID: appID, displayName: displayName,
+                         handle: Self.affectedHandle(request: request, response: response))
+        return response
+    }
+
+    /// The key handle an op created or removed, for the live-count view: the minted handle from a
+    /// successful GENERATE, the target handle of a DELETE. Other ops touch no handle and yield nil.
+    private static func affectedHandle(request: Request, response: Response) -> Data? {
+        switch (request, response) {
+        case let (.generate, .generated(handle, _)): return handle
+        case let (.delete(handle), .deleted): return handle
+        default: return nil
+        }
+    }
+
+    /// Sanitize a guest-reported display name before it reaches the helper UI. The name is
+    /// hostile input: drop control characters, trim surrounding whitespace, and clamp the length.
+    /// Returns nil for an empty or all-control name, so the UI falls back to the bundle id.
+    static func sanitizedDisplayName(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        // Drop control and format characters (newlines, escapes, RTL/bidi overrides like U+202E).
+        let stripped = raw.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }
+        // Clamp the scalar count, not the grapheme count: a single grapheme can stack unbounded
+        // combining marks (a "zalgo" name) that a grapheme-count clamp would miss, so the bound is
+        // on scalars to cap the rendered width however they cluster.
+        var view = String.UnicodeScalarView()
+        view.append(contentsOf: stripped.prefix(Wire.maxAppDisplayNameScalars))
+        let cleaned = String(view).trimmingCharacters(in: .whitespaces)
+        guard !cleaned.isEmpty else { return nil }
+        return stripped.count > Wire.maxAppDisplayNameScalars ? cleaned + "…" : cleaned
     }
 
     private static func label(_ request: Request) -> String {

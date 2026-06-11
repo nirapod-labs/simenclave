@@ -52,6 +52,26 @@ final class WireTests: XCTestCase {
         XCTAssertNil(Wire.appID(in: bare))
     }
 
+    func testHelloCarriesIdentity() throws {
+        let token = Data(repeating: 0xAB, count: 32)
+        let payload = Wire.encode(.hello(version: 1), token: token, appID: "a", displayName: "App")
+        // map(5): op, token, version, then app id (14) and display name (28) ascending. Tail after
+        // the 40-byte base: 0E 61 'a', 18 1C 63 'A' 'p' 'p'. These bytes match the C codec's
+        // se_encode_hello identity case, the two codecs' shared oracle.
+        XCTAssertEqual(payload.first, 0xA5)
+        XCTAssertEqual(payload.suffix(9),
+                       Data([0x0E, 0x61, 0x61, 0x18, 0x1C, 0x63, 0x41, 0x70, 0x70]))
+        XCTAssertEqual(Wire.appID(in: payload), "a")
+        XCTAssertEqual(Wire.appDisplayName(in: payload), "App")
+        // The op still decodes as a plain version-1 hello; identity is read out of band.
+        XCTAssertEqual(try Wire.decodeRequest(payload), .hello(version: 1))
+        // A bare HELLO is byte-identical to before and the identity readers return nil.
+        let bare = Wire.encode(.hello(version: 1), token: token)
+        XCTAssertEqual(bare.first, 0xA3)
+        XCTAssertNil(Wire.appID(in: bare))
+        XCTAssertNil(Wire.appDisplayName(in: bare))
+    }
+
     func testSignRequestRoundTrips() throws {
         let handle = Data((0 ..< 16).map { UInt8($0) })
         let input = Data(repeating: 0x5A, count: 32)

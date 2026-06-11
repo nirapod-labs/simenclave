@@ -89,9 +89,11 @@ struct MenubarView: View {
             } else {
                 ForEach(model.apps) { app in
                     HStack(spacing: 10) {
-                        Image(systemName: "iphone").foregroundStyle(.tint).frame(width: 20)
+                        Image(systemName: "app.dashed").foregroundStyle(.tint)
+                            .frame(width: 22, height: 22)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(app.id).font(.caption.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                            Text(app.name ?? app.id)
+                                .font(.caption.weight(.medium)).lineLimit(1).truncationMode(.middle)
                             Text("\(app.keys) key\(app.keys == 1 ? "" : "s") · \(app.lastSeen, style: .relative)")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }

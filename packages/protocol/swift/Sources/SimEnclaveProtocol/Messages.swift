@@ -211,6 +211,13 @@ public enum Wire {
     static let keyParameters: UInt64 = 25
     static let keyKeyType: UInt64 = 26
     static let keyKeySize: UInt64 = 27
+    /// The guest app's display name (HELLO, key 28), guest-reported and untrusted: the
+    /// helper clamps and sanitizes it before showing it. Names the app, gates nothing.
+    static let keyAppDisplayName: UInt64 = 28
+
+    /// The most Unicode scalars the helper keeps from a guest display name. Clamping scalars, not
+    /// graphemes, bounds the rendered width even when a name stacks unbounded combining marks.
+    public static let maxAppDisplayNameScalars = 64
 
     /// The OSStatus error domain, the default for key 13; an OSStatus-domain
     /// failure omits the key entirely, keeping the pre-M3 bytes.
@@ -221,14 +228,23 @@ public enum Wire {
 
     /// Encode a request, carrying the capability token in key 7. The token rides
     /// every request; the helper validates it before interpreting the op.
-    public static func encode(_ request: Request, token: Data, appID: String? = nil) -> Data {
+    public static func encode(_ request: Request, token: Data, appID: String? = nil,
+                              displayName: String? = nil) -> Data {
         var writer = CBORWriter()
         switch request {
         case let .hello(version):
-            writer.mapHeader(3)
+            // HELLO carries the session identity once: op, token, version, then the optional
+            // app id (14) and display name (28) in ascending key order. An interposer that sends
+            // neither encodes the original three-field HELLO byte for byte.
+            var count = 3
+            if appID != nil { count += 1 }
+            if displayName != nil { count += 1 }
+            writer.mapHeader(count)
             writer.uint(keyOp); writer.uint(opHello)
             writer.uint(keyToken); writer.bytes(token)
             writer.uint(keyVersion); writer.uint(version)
+            if let appID { writer.uint(keyAppID); writer.text(appID) }
+            if let displayName { writer.uint(keyAppDisplayName); writer.text(displayName) }
         case let .generate(keyClass, accessControl, persistent, keyType, keySizeInBits):
             // op and token, then key 9 if biometry, the access control (11, 12) if
             // present, the app id (14) if present, the persistence udid + tag (15, 16)
@@ -386,6 +402,12 @@ public enum Wire {
     /// but gates nothing.
     public static func appID(in payload: Data) -> String? {
         (try? CBORMap(decoding: payload))?.optionalText(keyAppID)
+    }
+
+    /// The guest-reported display name from a HELLO, key 28, if present. Guest-reported and
+    /// untrusted: the caller clamps and sanitizes it before display, and it gates nothing.
+    public static func appDisplayName(in payload: Data) -> String? {
+        (try? CBORMap(decoding: payload))?.optionalText(keyAppDisplayName)
     }
 
     /// Decode a request payload, dispatching on the op in key 0.

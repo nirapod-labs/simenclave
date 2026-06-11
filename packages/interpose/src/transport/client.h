@@ -216,13 +216,22 @@ se_status se_client_update(const uint8_t *handle, size_t handle_len, const uint8
                            se_response *out);
 
 /**
- * @brief Run the HELLO version handshake.
+ * @brief Run the HELLO version handshake, announcing the app's identity for display.
  *
- * @param[in]  version Protocol version this side speaks; currently 1.
- * @param[out] out     The decoded response; ::SE_RESP_HELLO on success.
+ * The identity is optional and best-effort: the bundle id and display name, each omitted when its
+ * pointer is NULL or length is 0. It names the connecting app so the helper can show it and gates
+ * nothing; the helper sanitizes the name before use.
+ *
+ * @param[in]  version          Protocol version this side speaks; currently 1.
+ * @param[in]  app_id           Guest bundle id, UTF-8, or NULL.
+ * @param[in]  app_id_len       Length of @p app_id; 0 omits it.
+ * @param[in]  display_name     Guest display name, UTF-8, or NULL.
+ * @param[in]  display_name_len Length of @p display_name; 0 omits it.
+ * @param[out] out              The decoded response; ::SE_RESP_HELLO on success.
  * @return ::SE_OK when a response decoded cleanly, an ::se_status error otherwise.
  */
-se_status se_client_hello(uint64_t version, se_response *out);
+se_status se_client_hello(uint64_t version, const uint8_t *app_id, size_t app_id_len,
+                          const uint8_t *display_name, size_t display_name_len, se_response *out);
 
 /** @} */
 
