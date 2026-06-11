@@ -11,12 +11,12 @@
  * within the session; durable persistence across relaunches is M5.
  *
 
- * @author SimEnclave Contributors
+ * @author Nirapod Labs
  * @date 2026
  *
  * @copyright
  * SPDX-License-Identifier: Apache-2.0
- * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ * SPDX-FileCopyrightText: 2026 Nirapod Labs
  */
 #include "../../include/simenclave_interpose.h"
 #include "../backend/hook_backend.h"

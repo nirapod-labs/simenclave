@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+# SPDX-FileCopyrightText: 2026 Nirapod Labs
 #
 # Doxygen configuration for the C tree (the protocol codec and the interposer).
 # Run: make docs. Output: build-docs/html/index.html. WARN_AS_ERROR makes the

@@ -8,12 +8,12 @@
  * debug scheme's DYLD_INSERT_LIBRARIES; never bundled in a release build.
  *
 
- * @author SimEnclave Contributors
+ * @author Nirapod Labs
  * @date 2026
  *
  * @copyright
  * SPDX-License-Identifier: Apache-2.0
- * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ * SPDX-FileCopyrightText: 2026 Nirapod Labs
  */
 #include "../include/simenclave_interpose.h"
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+// SPDX-FileCopyrightText: 2026 Nirapod Labs
 
 // The Secure Enclave domain, mirrored from the native SwiftUI console so the two example apps
 // describe the same operations in the same words. A provider (below) turns these into the real

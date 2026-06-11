@@ -14,12 +14,12 @@
  * All functions are safe to call from any thread; the table is guarded by one
  * internal lock.
  *
- * @author SimEnclave Contributors
+ * @author Nirapod Labs
  * @date 2026
  *
  * @copyright
  * SPDX-License-Identifier: Apache-2.0
- * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ * SPDX-FileCopyrightText: 2026 Nirapod Labs
  */
 #ifndef SE_SHADOW_REF_H
 #define SE_SHADOW_REF_H

@@ -1,6 +1,8 @@
 {
   "name": "rn-se-console",
   "version": "1.0.0",
+  "author": "Nirapod Labs",
+  "license": "Apache-2.0",
   "main": "expo-router/entry",
   "dependencies": {
     "@expo/ui": "~56.0.17",

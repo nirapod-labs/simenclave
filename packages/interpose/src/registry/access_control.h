@@ -17,12 +17,12 @@
  * Both functions are safe to call from any thread; the ring is guarded by one
  * internal lock.
  *
- * @author SimEnclave Contributors
+ * @author Nirapod Labs
  * @date 2026
  *
  * @copyright
  * SPDX-License-Identifier: Apache-2.0
- * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ * SPDX-FileCopyrightText: 2026 Nirapod Labs
  */
 #ifndef SE_ACCESS_CONTROL_H
 #define SE_ACCESS_CONTROL_H

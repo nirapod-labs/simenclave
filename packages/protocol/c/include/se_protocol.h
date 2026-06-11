@@ -17,12 +17,12 @@
  * caller buffer and returns the byte count, or -1 when the buffer is too
  * small. Encoders never allocate.
  *
- * @author SimEnclave Contributors
+ * @author Nirapod Labs
  * @date 2026
  *
  * @copyright
  * SPDX-License-Identifier: Apache-2.0
- * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ * SPDX-FileCopyrightText: 2026 Nirapod Labs
  */
 #ifndef SE_PROTOCOL_H
 #define SE_PROTOCOL_H

@@ -10,12 +10,12 @@
  * host helper. So a verify of 1 is mechanism D.
  *
 
- * @author SimEnclave Contributors
+ * @author Nirapod Labs
  * @date 2026
  *
  * @copyright
  * SPDX-License-Identifier: Apache-2.0
- * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ * SPDX-FileCopyrightText: 2026 Nirapod Labs
  */
 #include <CommonCrypto/CommonCrypto.h>
 #include <Security/Security.h>
