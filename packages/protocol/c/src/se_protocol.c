@@ -316,15 +316,21 @@ int se_encode_delete(const uint8_t *token, size_t token_len, const uint8_t *hand
 
 int se_encode_update(const uint8_t *token, size_t token_len, const uint8_t *handle,
                      size_t handle_len, const uint8_t *udid, size_t udid_len,
-                     const uint8_t *app_tag, size_t app_tag_len, uint8_t *out, size_t cap) {
+                     const uint8_t *app_tag, size_t app_tag_len, const uint8_t *app_id,
+                     size_t app_id_len, uint8_t *out, size_t cap) {
+  int has_app = app_id && app_id_len > 0;
   writer w = {out, cap, 0, 0};
-  w_head(&w, CBOR_MAP, 5); // op, handle, token, udid, app tag, keys ascending
+  w_head(&w, CBOR_MAP, 5 + has_app); // op, handle, token, [app id], udid, app tag, ascending
   w_head(&w, CBOR_UINT, K_OP);
   w_head(&w, CBOR_UINT, OP_UPDATE);
   w_head(&w, CBOR_UINT, K_HANDLE);
   w_bytes(&w, CBOR_BYTES, handle, handle_len);
   w_head(&w, CBOR_UINT, K_TOKEN);
   w_bytes(&w, CBOR_BYTES, token, token_len);
+  if (has_app) {
+    w_head(&w, CBOR_UINT, K_APP_ID);
+    w_bytes(&w, CBOR_TEXT, app_id, app_id_len);
+  }
   w_head(&w, CBOR_UINT, K_UDID);
   w_bytes(&w, CBOR_TEXT, udid, udid_len);
   w_head(&w, CBOR_UINT, K_APP_TAG);
@@ -360,14 +366,19 @@ int se_encode_hello(const uint8_t *token, size_t token_len, uint64_t version,
 }
 
 int se_encode_find_by_tag(const uint8_t *token, size_t token_len, const uint8_t *udid,
-                          size_t udid_len, const uint8_t *app_tag, size_t app_tag_len, uint8_t *out,
-                          size_t cap) {
+                          size_t udid_len, const uint8_t *app_tag, size_t app_tag_len,
+                          const uint8_t *app_id, size_t app_id_len, uint8_t *out, size_t cap) {
+  int has_app = app_id && app_id_len > 0;
   writer w = {out, cap, 0, 0};
-  w_head(&w, CBOR_MAP, 4); // map(4): op, token, udid, app tag, keys ascending
+  w_head(&w, CBOR_MAP, 4 + has_app); // op, token, [app id], udid, app tag, keys ascending
   w_head(&w, CBOR_UINT, K_OP);
   w_head(&w, CBOR_UINT, OP_FIND_BY_TAG);
   w_head(&w, CBOR_UINT, K_TOKEN);
   w_bytes(&w, CBOR_BYTES, token, token_len);
+  if (has_app) {
+    w_head(&w, CBOR_UINT, K_APP_ID);
+    w_bytes(&w, CBOR_TEXT, app_id, app_id_len);
+  }
   w_head(&w, CBOR_UINT, K_UDID);
   w_bytes(&w, CBOR_TEXT, udid, udid_len);
   w_head(&w, CBOR_UINT, K_APP_TAG);
@@ -376,13 +387,18 @@ int se_encode_find_by_tag(const uint8_t *token, size_t token_len, const uint8_t 
 }
 
 int se_encode_list_keys(const uint8_t *token, size_t token_len, const uint8_t *udid, size_t udid_len,
-                        uint8_t *out, size_t cap) {
+                        const uint8_t *app_id, size_t app_id_len, uint8_t *out, size_t cap) {
+  int has_app = app_id && app_id_len > 0;
   writer w = {out, cap, 0, 0};
-  w_head(&w, CBOR_MAP, 3); // map(3): op, token, udid, keys ascending
+  w_head(&w, CBOR_MAP, 3 + has_app); // op, token, [app id], udid, keys ascending
   w_head(&w, CBOR_UINT, K_OP);
   w_head(&w, CBOR_UINT, OP_LIST_KEYS);
   w_head(&w, CBOR_UINT, K_TOKEN);
   w_bytes(&w, CBOR_BYTES, token, token_len);
+  if (has_app) {
+    w_head(&w, CBOR_UINT, K_APP_ID);
+    w_bytes(&w, CBOR_TEXT, app_id, app_id_len);
+  }
   w_head(&w, CBOR_UINT, K_UDID);
   w_bytes(&w, CBOR_TEXT, udid, udid_len);
   return w.overflow ? -1 : (int)w.pos;

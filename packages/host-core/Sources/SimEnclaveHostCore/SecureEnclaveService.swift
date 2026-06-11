@@ -89,7 +89,7 @@ public final class SecureEnclaveService: @unchecked Sendable {
     /// sign time and its error parity are M3.
     public func generate(requiresBiometry: Bool = false, accessFlags: UInt? = nil,
                          protection: String? = nil, persistentTag: Data? = nil,
-                         udid: String? = nil, keyType: String? = nil,
+                         udid: String? = nil, appID: String? = nil, keyType: String? = nil,
                          keySizeInBits: UInt? = nil) throws -> (handle: Data, publicKey: Data) {
         guard SecureEnclave.isAvailable else { throw Failure.unavailable }
 
@@ -147,9 +147,10 @@ public final class SecureEnclaveService: @unchecked Sendable {
         let requiresPrompt = accessFlags.map { ($0 & Self.promptFlagMask) != 0 } ?? requiresBiometry
         lock.lock()
         keys[handle] = StoredKey(key: privateKey, requiresPrompt: requiresPrompt)
-        // A permanent key (tag + udid both present) is registered for find-by-tag and enumerate.
+        // A permanent key (tag + udid both present) is registered for find-by-tag and enumerate,
+        // namespaced by the calling app so two apps on one simulator stay isolated like a device.
         if let persistentTag, let udid {
-            tags[Self.tagKey(udid: udid, appTag: persistentTag)] =
+            tags[Self.tagKey(udid: udid, appID: appID, appTag: persistentTag)] =
                 TagRecord(handle: handle, appTag: persistentTag)
         }
         lock.unlock()
@@ -159,9 +160,10 @@ public final class SecureEnclaveService: @unchecked Sendable {
     /// The handle and X9.63 public key of the permanent key stored under `appTag` for
     /// `udid`, or `unknownHandle` if no such key is in this helper's session. This is how a
     /// relaunched app finds a key it created on a previous run, while the helper stays up.
-    public func findByTag(appTag: Data, udid: String) throws -> (handle: Data, publicKey: Data) {
+    public func findByTag(appTag: Data, udid: String, appID: String? = nil) throws
+        -> (handle: Data, publicKey: Data) {
         lock.lock()
-        let handle = tags[Self.tagKey(udid: udid, appTag: appTag)]?.handle
+        let handle = tags[Self.tagKey(udid: udid, appID: appID, appTag: appTag)]?.handle
         lock.unlock()
         guard let handle else { throw Failure.unknownHandle }
         return (handle, try publicKey(for: handle))
@@ -170,17 +172,18 @@ public final class SecureEnclaveService: @unchecked Sendable {
     /// Every permanent key registered for `udid`: its handle, X9.63 public key, and tag. This
     /// is what backs an app's `SecItemCopyMatching` with `kSecMatchLimitAll`, so the keychain
     /// is enumerated natively rather than the app remembering its own tags.
-    public func listKeys(udid: String) -> [(handle: Data, publicKey: Data, appTag: Data)] {
+    public func listKeys(udid: String, appID: String? = nil)
+        -> [(handle: Data, publicKey: Data, appTag: Data)] {
         lock.lock()
-        let records = tags.filter { $0.key.hasPrefix("\(udid)|") }.values
+        let records = tags.filter { $0.key.hasPrefix("\(udid)|\(appID ?? "")|") }.values
         lock.unlock()
         return records.compactMap { record in
             (try? publicKey(for: record.handle)).map { (record.handle, $0, record.appTag) }
         }
     }
 
-    private static func tagKey(udid: String, appTag: Data) -> String {
-        "\(udid)|" + appTag.map { String(format: "%02x", $0) }.joined()
+    private static func tagKey(udid: String, appID: String?, appTag: Data) -> String {
+        "\(udid)|\(appID ?? "")|" + appTag.map { String(format: "%02x", $0) }.joined()
     }
 
     /// The X9.63 public key for the SEP key named by `handle`.
@@ -309,14 +312,15 @@ public final class SecureEnclaveService: @unchecked Sendable {
 
     /// Re-tag the key named by `handle` to `appTag` for `udid`, so find-by-tag and enumerate
     /// follow a `SecItemUpdate` that renames a key's application tag. Unknown handles fail closed.
-    public func updateTag(handle: Data, appTag: Data, udid: String) throws {
+    public func updateTag(handle: Data, appTag: Data, udid: String, appID: String? = nil) throws {
         lock.lock()
         defer { lock.unlock() }
         guard keys[handle] != nil else { throw Failure.unknownHandle }
         // Drop any tag record pointing at this handle, then register the new one, so an old-tag
         // lookup misses and a new-tag lookup hits, exactly as a renamed keychain item behaves.
         tags = tags.filter { $0.value.handle != handle }
-        tags[Self.tagKey(udid: udid, appTag: appTag)] = TagRecord(handle: handle, appTag: appTag)
+        tags[Self.tagKey(udid: udid, appID: appID, appTag: appTag)] =
+            TagRecord(handle: handle, appTag: appTag)
     }
 
     private func exportPublicKey(of privateKey: SecKey) throws -> Data {

@@ -75,6 +75,29 @@ final class SecureEnclaveServiceTests: XCTestCase {
         XCTAssertFalse(tags.contains(oldTag), "the old tag must be gone")
     }
 
+    func testKeysAreIsolatedPerApp() throws {
+        let service = SecureEnclaveService()
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+        // Two apps on one simulator persist a key under the same tag. On a device each app's
+        // keychain is its own (the access group is the bundle id), so neither sees the other's.
+        let udid = "TEST-UDID"
+        let tag = Data("tag.shared".utf8)
+        let (oneHandle, _) = try service.generate(persistentTag: tag, udid: udid, appID: "app.one")
+        let (twoHandle, _) = try service.generate(persistentTag: tag, udid: udid, appID: "app.two")
+        XCTAssertNotEqual(oneHandle, twoHandle)
+        // Find-by-tag resolves to the calling app's own key, never the other app's.
+        XCTAssertEqual(try service.findByTag(appTag: tag, udid: udid, appID: "app.one").handle,
+                       oneHandle)
+        XCTAssertEqual(try service.findByTag(appTag: tag, udid: udid, appID: "app.two").handle,
+                       twoHandle)
+        // Enumerate returns only the calling app's keys: one each, never the other's.
+        XCTAssertEqual(service.listKeys(udid: udid, appID: "app.one").map(\.handle), [oneHandle])
+        XCTAssertEqual(service.listKeys(udid: udid, appID: "app.two").map(\.handle), [twoHandle])
+        // A third app that created nothing sees an empty keychain and finds nothing.
+        XCTAssertTrue(service.listKeys(udid: udid, appID: "app.three").isEmpty)
+        XCTAssertThrowsError(try service.findByTag(appTag: tag, udid: udid, appID: "app.three"))
+    }
+
     func testUpdateTagUnknownHandleFails() throws {
         let service = SecureEnclaveService()
         try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")

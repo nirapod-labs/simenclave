@@ -73,6 +73,7 @@ delete-request = {
 find-by-tag-request = {
   0 => 6,                ; op = FIND_BY_TAG
   7 => token,
+  ? 14 => tstr,          ; calling app's bundle id, scopes the lookup per app (guest-reported)
   15 => tstr,            ; simulator UDID, for namespacing (not a security boundary)
   16 => bstr,            ; application tag of a key persisted in an earlier session
 }
