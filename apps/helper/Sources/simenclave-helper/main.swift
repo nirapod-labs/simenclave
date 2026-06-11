@@ -41,6 +41,7 @@ let signalSources: [DispatchSourceSignal] = terminationSignals.map { number in
     let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
     source.setEventHandler {
         TokenFile.remove(fromDirectory: tokenDirectory)
+        TokenFile.removePort(fromDirectory: tokenDirectory)
         exit(0)
     }
     source.resume()
@@ -58,6 +59,8 @@ do {
     TokenFile.remove(fromDirectory: tokenDirectory)
     exit(1)
 }
+
+TokenFile.writePort(listener.port, toDirectory: tokenDirectory)
 
 print("{\"ready\":true,\"port\":\(listener.port)}")
 fflush(stdout)

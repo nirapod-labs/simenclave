@@ -94,6 +94,31 @@ public enum TokenFile {
         unlink(path(inDirectory: directory))
     }
 
+    /// The port file path: a non-secret companion to the token so a launcher (or the
+    /// menubar's copy action) can discover where the running helper is bound, without
+    /// scraping its stdout. The port is not a secret; only the token is.
+    public static func portPath(inDirectory directory: String) -> String {
+        directory + "/port"
+    }
+
+    /// Write the bound port as text. Best effort: a launcher convenience, not the
+    /// security boundary, so a write failure is not fatal to the helper.
+    public static func writePort(_ port: UInt16, toDirectory directory: String) {
+        try? Data("\(port)\n".utf8).write(to: URL(fileURLWithPath: portPath(inDirectory: directory)))
+    }
+
+    /// Read the bound port a running helper wrote, or nil if absent or unparseable.
+    public static func readPort(fromDirectory directory: String) -> UInt16? {
+        guard let text = try? String(contentsOfFile: portPath(inDirectory: directory), encoding: .utf8)
+        else { return nil }
+        return UInt16(text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// Remove the port file, so it never outlives the helper that wrote it.
+    public static func removePort(fromDirectory directory: String) {
+        unlink(portPath(inDirectory: directory))
+    }
+
     private static func ensureSafeDirectory(_ directory: String) throws {
         var info = stat()
         if lstat(directory, &info) != 0 {

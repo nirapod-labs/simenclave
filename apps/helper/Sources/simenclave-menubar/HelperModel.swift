@@ -1,0 +1,240 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+
+import AppKit
+import Foundation
+import Observation
+import ServiceManagement
+import SimEnclaveHelperKit
+import SimEnclaveHostCore
+
+/// A simulator app that has used the Secure Enclave this session, named by its bundle id
+/// (only a GENERATE carries the id over the wire, so the count is keys minted).
+struct AppActivity: Identifiable {
+    let id: String
+    var keys: Int
+    var lastSeen: Date
+}
+
+/// The menubar's whole state and the helper lifecycle behind it: the on/off control, the
+/// bound port, the connected apps, and the settings (fixed port, launch at login). The view
+/// binds to this; it owns the `SecureEnclaveService` and the `LoopbackListener`.
+@MainActor
+@Observable
+final class HelperModel {
+    private(set) var running = false
+    private(set) var port: UInt16 = 0
+    private(set) var apps: [AppActivity] = []
+    private(set) var totalOps = 0
+
+    /// A pinned port, so the scheme environment stays stable across restarts. 0 is ephemeral.
+    var fixedPort: Int {
+        didSet { UserDefaults.standard.set(fixedPort, forKey: Self.fixedPortKey) }
+    }
+
+    /// Start SimEnclave at login, via the login-items service.
+    var launchAtLogin: Bool {
+        didSet { setLaunchAtLogin(launchAtLogin) }
+    }
+
+    private let service = SecureEnclaveService(biometricGate: AppKitBiometricGate())
+    private var listener: LoopbackListener?
+    private var directory: String?
+    private var observer: Observer?
+
+    private static let fixedPortKey = "fixedPort"
+    private static let lastPortKey = "lastPort"
+
+    init() {
+        fixedPort = UserDefaults.standard.integer(forKey: Self.fixedPortKey)
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+        // Arm on launch, so opening SimEnclave makes the helper live without a click.
+        start()
+        // Any quit (Cmd-Q, logout, the Quit button) clears the simulator injection env, so a
+        // later app never injects against a dead helper.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.clearInjection() }
+        }
+    }
+
+    var secureEnclaveAvailable: Bool { service.isAvailable }
+
+    var iconName: String {
+        guard secureEnclaveAvailable else { return "exclamationmark.triangle" }
+        return running ? "lock.shield.fill" : "lock.slash"
+    }
+
+    func toggle() { running ? stop() : start() }
+
+    func start() {
+        guard service.isAvailable, !running else { return }
+        let dir = TokenFile.defaultDirectory()
+        // A persistent token, reused across restarts, so an app injected once keeps
+        // authenticating after the helper restarts instead of the connection dropping on a
+        // freshly minted token.
+        let token: CapabilityToken
+        if let existing = try? TokenFile.read(fromDirectory: dir) {
+            token = existing
+        } else {
+            token = CapabilityToken()
+            do { try TokenFile.write(token, toDirectory: dir) } catch { return }
+        }
+        let obs = Observer(model: self)
+        let router = RequestRouter(service: service, gate: AuthGate(session: token), observer: obs)
+        // A stable port: the user's pinned port, else the port last bound, so a restart reuses
+        // the same address and an already-injected app reconnects without re-injection. Fall
+        // back to an ephemeral port only if the preferred one is unavailable.
+        let preferred = fixedPort > 0 ? fixedPort : UserDefaults.standard.integer(forKey: Self.lastPortKey)
+        var started = LoopbackListener(router: router)
+        do {
+            try started.start(port: UInt16(clamping: preferred))
+        } catch {
+            started = LoopbackListener(router: router)
+            do { try started.start(port: 0) } catch { return }
+        }
+        observer = obs
+        listener = started
+        directory = dir
+        port = started.port
+        running = true
+        UserDefaults.standard.set(Int(port), forKey: Self.lastPortKey)
+        TokenFile.writePort(port, toDirectory: dir)
+        applyInjection()
+    }
+
+    func stop() {
+        clearInjection()
+        listener?.stop()
+        listener = nil
+        // Keep the token file so a restart reuses the same token (stable connection); only the
+        // port file goes, since the listener is down.
+        if let directory { TokenFile.removePort(fromDirectory: directory) }
+        directory = nil
+        running = false
+        port = 0
+    }
+
+    /// Arm the booted simulators so any app they launch is injected automatically, the SimCam
+    /// model: set the interposer and the helper's port and token in the simulator's `launchd`
+    /// environment via `simctl spawn ... launchctl setenv`. Every app launched afterward,
+    /// including ones tapped on the home screen, inherits it. Apps already running are not
+    /// affected; launch SimEnclave before the app, like SimCam. Run off the main actor so the
+    /// menubar does not hitch on the `simctl` spawns.
+    private func applyInjection() {
+        guard let dylib = Self.interposerDylib(), let directory,
+              let token = try? TokenFile.read(fromDirectory: directory).hex else { return }
+        let port = self.port
+        Task.detached {
+            let env = [
+                ("DYLD_INSERT_LIBRARIES", dylib),
+                ("SIMENCLAVE_PORT", String(port)),
+                ("SIMENCLAVE_TOKEN", token),
+            ]
+            for udid in Self.bootedSimulators() {
+                for (key, value) in env {
+                    Self.runSimctl(["spawn", udid, "launchctl", "setenv", key, value])
+                }
+            }
+        }
+    }
+
+    /// Clear the simulator injection env. Synchronous, so a Quit or toggle-off finishes the
+    /// cleanup before the helper goes away and a stale port/token cannot mislead a later app.
+    func clearInjection() {
+        let keys = ["DYLD_INSERT_LIBRARIES", "SIMENCLAVE_PORT", "SIMENCLAVE_TOKEN"]
+        for udid in Self.bootedSimulators() {
+            for key in keys { Self.runSimctl(["spawn", udid, "launchctl", "unsetenv", key]) }
+        }
+    }
+
+    /// The UDIDs of every booted simulator, parsed from `simctl list devices booted`.
+    private nonisolated static func bootedSimulators() -> [String] {
+        guard let output = runSimctlOutput(["list", "devices", "booted"]) else { return [] }
+        let pattern = "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let text = output as NSString
+        return regex.matches(in: output, range: NSRange(location: 0, length: text.length))
+            .map { text.substring(with: $0.range) }
+    }
+
+    @discardableResult
+    private nonisolated static func runSimctl(_ arguments: [String]) -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl"] + arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return -1 }
+        process.waitUntilExit()
+        return process.terminationStatus
+    }
+
+    private nonisolated static func runSimctlOutput(_ arguments: [String]) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl"] + arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// The three lines a developer pastes into an Xcode scheme's environment.
+    func schemeEnvironment() -> String? {
+        guard running, let directory, let token = try? TokenFile.read(fromDirectory: directory).hex
+        else { return nil }
+        let dylib = Self.interposerDylib() ?? "# build it first: make dylib"
+        return """
+        DYLD_INSERT_LIBRARIES=\(dylib)
+        SIMENCLAVE_PORT=\(port)
+        SIMENCLAVE_TOKEN=\(token)
+        """
+    }
+
+    /// Record a served op for the connected-apps view. Called on the main actor.
+    func record(op: String, appID: String?) {
+        totalOps += 1
+        guard let appID else { return }
+        if let index = apps.firstIndex(where: { $0.id == appID }) {
+            if op == "GENERATE" { apps[index].keys += 1 }
+            apps[index].lastSeen = Date()
+        } else {
+            apps.insert(AppActivity(id: appID, keys: op == "GENERATE" ? 1 : 0, lastSeen: Date()), at: 0)
+        }
+    }
+
+    private func setLaunchAtLogin(_ on: Bool) {
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        } catch {
+            FileHandle.standardError.write(Data("simenclave: login item: \(error)\n".utf8))
+        }
+    }
+
+    /// Walk up from the running binary to the repo's built simulator interposer, so the
+    /// copied scheme environment carries a real path in a dev checkout.
+    private static func interposerDylib() -> String? {
+        var dir = URL(fileURLWithPath: CommandLine.arguments[0])
+            .resolvingSymlinksInPath().deletingLastPathComponent()
+        for _ in 0 ..< 10 {
+            let candidate = dir.appendingPathComponent("build-sim/bin/simenclave-interpose.dylib")
+            if FileManager.default.fileExists(atPath: candidate.path) { return candidate.path }
+            dir = dir.deletingLastPathComponent()
+        }
+        return nil
+    }
+
+    /// Bridges the router's off-main `served` callbacks onto the main actor.
+    final class Observer: ServeObserver, @unchecked Sendable {
+        weak var model: HelperModel?
+        init(model: HelperModel) { self.model = model }
+        func served(op: String, appID: String?) {
+            Task { @MainActor [weak model] in model?.record(op: op, appID: appID) }
+        }
+    }
+}

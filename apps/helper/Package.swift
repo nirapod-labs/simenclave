@@ -9,7 +9,7 @@ import PackageDescription
 // is for keychain persistence (M3).
 let package = Package(
     name: "SimEnclaveHelper",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
     products: [
         .executable(name: "simenclave-helper", targets: ["simenclave-helper"]),
         .executable(name: "simenclave-menubar", targets: ["simenclave-menubar"]),
