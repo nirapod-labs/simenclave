@@ -10,12 +10,18 @@ export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 SIM_SDK    := $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun --sdk iphonesimulator --show-sdk-path)
 SIM_TARGET := arm64-apple-ios15.0-simulator
 SWIFT_PKGS := packages/host-core packages/protocol/swift apps/helper
+
+# Code-signing identity for `make sign`. Default is ad-hoc, which works on any
+# machine with no certificate. Pass a keychain identity for a named local build,
+# e.g. make sign SIGN_ID="SimEnclave Dev (Local)". This is a local-use signature,
+# not Developer ID or notarization; the shippable signed build is M5.
+SIGN_ID ?= -
 C_FILES    := $(shell find packages/interpose/src packages/interpose/include packages/interpose/tests \
                             packages/protocol/c/src packages/protocol/c/include packages/protocol/c/tests \
                             -type f \( -name '*.c' -o -name '*.h' \) 2>/dev/null)
 
 .PHONY: help bootstrap configure build dylib helper test test-portable \
-        fence docs mechanism-c mechanism-d cryptokit-probe lint format clean
+        fence docs sign mechanism-c mechanism-d cryptokit-probe lint format clean
 
 help: ## Show targets
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-14s %s\n", $$1, $$2}'
@@ -42,6 +48,11 @@ dylib: configure ## Build just the injectable interposer dylib (sim slice)
 
 helper: ## Build just the helper executable
 	cd apps/helper && xcrun swift build
+
+sign: ## Build the release helper and codesign it (SIGN_ID=- ad-hoc; pass an identity for a named build)
+	cd apps/helper && xcrun swift build -c release
+	codesign -s "$(SIGN_ID)" --force apps/helper/.build/release/simenclave-helper
+	@codesign -dvv apps/helper/.build/release/simenclave-helper 2>&1 | grep -E "Authority|Signature|Identifier"
 
 test: build ## Run the C tests (ctest), the Swift tests, the static fence, and mechanism C
 	ctest --test-dir build --output-on-failure
