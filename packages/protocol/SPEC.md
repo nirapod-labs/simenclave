@@ -71,7 +71,7 @@ key `7` has to be uniquely defined by the bytes before it is checked. The keys:
 | 11  | `accessFlags` | request | uint, `SecAccessControlCreateFlags`, GENERATE |
 | 12  | `protection`  | request | tstr, a `kSecAttrAccessible*` constant, GENERATE |
 | 13  | `errorDomain` | response | uint, error-domain selector, optional |
-| 14  | `appID`       | request | tstr, the guest-reported bundle id |
+| 14  | `appID`       | request | tstr, the guest-reported bundle id; scopes persisted keys per app |
 | 15  | `udid`        | request | tstr, the simulator UDID, for namespacing |
 | 16  | `appTag`      | request | bstr, the app's `kSecAttrApplicationTag` |
 | 28  | `appDisplayName` | request | tstr, the guest app's display name, HELLO only |
@@ -141,11 +141,14 @@ and chooses no hash, so the algorithm the app asked for is the one that signs.
 ```
 
 `FIND_BY_TAG` looks up a key persisted in an earlier session by its application tag,
-scoped to a simulator UDID, the durable counterpart to a `GET_PUBKEY` by handle. The
-UDID namespaces cooperating runs and is not a security boundary:
+scoped to a simulator UDID and the calling app's bundle id (14, optional), the durable
+counterpart to a `GET_PUBKEY` by handle. The UDID and the bundle id namespace cooperating
+runs and keep two apps on one simulator isolated the way a device's keychain access groups
+do; both are guest-reported and not a security boundary. The same optional bundle id scopes
+`LIST_KEYS` (enumeration) and the `UPDATE` re-tag:
 
 ```
-{ 0: 6, 7: <token>, 15: "<udid>", 16: <appTag> }
+{ 0: 6, 7: <token>, ? 14: "<bundle id>", 15: "<udid>", 16: <appTag> }
 ```
 
 ### Responses

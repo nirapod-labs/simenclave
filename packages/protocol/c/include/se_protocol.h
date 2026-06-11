@@ -228,13 +228,16 @@ int se_encode_delete(const uint8_t *token, size_t token_len, const uint8_t *hand
  * @param[in]  udid_len    Length of @p udid.
  * @param[in]  app_tag     New application tag bytes.
  * @param[in]  app_tag_len Length of @p app_tag.
+ * @param[in]  app_id      Calling app's bundle id, UTF-8 (key 14), or NULL; scopes the key.
+ * @param[in]  app_id_len  Length of @p app_id; 0 omits key 14.
  * @param[out] out         Buffer the payload is written to.
  * @param[in]  cap         Capacity of @p out.
  * @return Bytes written, or -1 if @p cap is too small.
  */
 int se_encode_update(const uint8_t *token, size_t token_len, const uint8_t *handle,
                      size_t handle_len, const uint8_t *udid, size_t udid_len,
-                     const uint8_t *app_tag, size_t app_tag_len, uint8_t *out, size_t cap);
+                     const uint8_t *app_tag, size_t app_tag_len, const uint8_t *app_id,
+                     size_t app_id_len, uint8_t *out, size_t cap);
 
 /**
  * @brief Encode a HELLO request: token, the protocol version, and the optional session identity.
@@ -262,9 +265,10 @@ int se_encode_hello(const uint8_t *token, size_t token_len, uint64_t version,
 /**
  * @brief Encode a FIND_BY_TAG request: look up a persisted key by application tag.
  *
- * The UDID namespaces tags per simulator as hygiene, not a security boundary
- * (it is guest-reported). Durable persistence lands in M5; until then the
- * helper answers not-found.
+ * The UDID and the calling app's bundle id namespace tags per simulator and per app as hygiene,
+ * not a security boundary (both guest-reported), so two apps on one simulator stay isolated the
+ * way a device's keychain access groups isolate them. Durable persistence lands in M5; until then
+ * the helper answers not-found.
  *
  * @param[in]  token       32-byte capability token.
  * @param[in]  token_len   Length of @p token.
@@ -272,13 +276,15 @@ int se_encode_hello(const uint8_t *token, size_t token_len, uint64_t version,
  * @param[in]  udid_len    Length of @p udid.
  * @param[in]  app_tag     Application tag bytes (key 16).
  * @param[in]  app_tag_len Length of @p app_tag.
+ * @param[in]  app_id      Calling app's bundle id, UTF-8 (key 14), or NULL; scopes the lookup.
+ * @param[in]  app_id_len  Length of @p app_id; 0 omits key 14.
  * @param[out] out         Buffer the payload is written to.
  * @param[in]  cap         Capacity of @p out.
  * @return Bytes written, or -1 if @p cap is too small.
  */
 int se_encode_find_by_tag(const uint8_t *token, size_t token_len, const uint8_t *udid,
-                          size_t udid_len, const uint8_t *app_tag, size_t app_tag_len, uint8_t *out,
-                          size_t cap);
+                          size_t udid_len, const uint8_t *app_tag, size_t app_tag_len,
+                          const uint8_t *app_id, size_t app_id_len, uint8_t *out, size_t cap);
 
 /**
  * @brief Decode a response payload, dispatching on op and status.
@@ -312,18 +318,20 @@ typedef struct {
 } se_key_entry;
 
 /**
- * @brief Encode a LIST_KEYS request: enumerate every persisted key for a simulator.
+ * @brief Encode a LIST_KEYS request: enumerate every persisted key for an app on a simulator.
  *
- * @param[in]  token     32-byte capability token.
- * @param[in]  token_len Length of @p token.
- * @param[in]  udid      Simulator UDID, UTF-8 (key 15).
- * @param[in]  udid_len  Length of @p udid.
- * @param[out] out       Buffer the payload is written to.
- * @param[in]  cap       Capacity of @p out.
+ * @param[in]  token      32-byte capability token.
+ * @param[in]  token_len  Length of @p token.
+ * @param[in]  udid       Simulator UDID, UTF-8 (key 15).
+ * @param[in]  udid_len   Length of @p udid.
+ * @param[in]  app_id     Calling app's bundle id, UTF-8 (key 14), or NULL; scopes the enumeration.
+ * @param[in]  app_id_len Length of @p app_id; 0 omits key 14.
+ * @param[out] out        Buffer the payload is written to.
+ * @param[in]  cap        Capacity of @p out.
  * @return Bytes written, or -1 if @p cap is too small.
  */
 int se_encode_list_keys(const uint8_t *token, size_t token_len, const uint8_t *udid, size_t udid_len,
-                        uint8_t *out, size_t cap);
+                        const uint8_t *app_id, size_t app_id_len, uint8_t *out, size_t cap);
 
 /**
  * @brief Encode an IS_ALGO_SUPPORTED request: does the real key support an operation+algorithm.

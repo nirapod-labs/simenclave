@@ -89,30 +89,36 @@ se_status se_client_generate_persistent(int biometry, uint64_t flags, const uint
                                         uint64_t key_size, se_response *out);
 
 /**
- * @brief Look up a persisted key by application tag, namespaced by simulator UDID.
+ * @brief Look up a persisted key by application tag, namespaced by simulator UDID and app id.
  *
  * @param[in]  udid        Simulator UDID, UTF-8.
  * @param[in]  udid_len    Length of @p udid.
  * @param[in]  app_tag     Application tag bytes.
  * @param[in]  app_tag_len Length of @p app_tag.
+ * @param[in]  app_id      Calling app's bundle id, UTF-8, or NULL; scopes the lookup to this app.
+ * @param[in]  app_id_len  Length of @p app_id; 0 omits it.
  * @param[out] out         The decoded response; ::SE_RESP_FOUND on a hit, ::SE_RESP_ERROR on a miss.
  * @return ::SE_OK when a response decoded cleanly, an ::se_status error otherwise.
  */
 se_status se_client_find_by_tag(const uint8_t *udid, size_t udid_len, const uint8_t *app_tag,
-                                size_t app_tag_len, se_response *out);
+                                size_t app_tag_len, const uint8_t *app_id, size_t app_id_len,
+                                se_response *out);
 
 /**
- * @brief Enumerate every persisted key for the simulator, for a kSecMatchLimitAll query.
+ * @brief Enumerate every persisted key for this app on the simulator, for a kSecMatchLimitAll query.
  *
  * @param[in]  udid        Simulator UDID, UTF-8.
  * @param[in]  udid_len    Length of @p udid.
+ * @param[in]  app_id      Calling app's bundle id, UTF-8, or NULL; scopes the enumeration.
+ * @param[in]  app_id_len  Length of @p app_id; 0 omits it.
  * @param[out] entries     Caller array filled with up to @p max_entries keys.
  * @param[in]  max_entries Capacity of @p entries.
  * @param[out] count       Number of entries written.
  * @return ::SE_OK when a response decoded cleanly, an ::se_status error otherwise.
  */
-se_status se_client_list(const uint8_t *udid, size_t udid_len, se_key_entry *entries,
-                         size_t max_entries, size_t *count);
+se_status se_client_list(const uint8_t *udid, size_t udid_len, const uint8_t *app_id,
+                         size_t app_id_len, se_key_entry *entries, size_t max_entries,
+                         size_t *count);
 
 /**
  * @brief Ask the helper whether the real key supports an operation+algorithm.
@@ -208,12 +214,14 @@ se_status se_client_delete(const uint8_t *handle, size_t handle_len, se_response
  * @param[in]  udid_len    Length of @p udid.
  * @param[in]  app_tag     New application tag bytes.
  * @param[in]  app_tag_len Length of @p app_tag.
+ * @param[in]  app_id      Calling app's bundle id, UTF-8, or NULL; scopes the key.
+ * @param[in]  app_id_len  Length of @p app_id; 0 omits it.
  * @param[out] out         The decoded response; ::SE_RESP_UPDATED on success.
  * @return ::SE_OK when a response decoded cleanly, an ::se_status error otherwise.
  */
 se_status se_client_update(const uint8_t *handle, size_t handle_len, const uint8_t *udid,
                            size_t udid_len, const uint8_t *app_tag, size_t app_tag_len,
-                           se_response *out);
+                           const uint8_t *app_id, size_t app_id_len, se_response *out);
 
 /**
  * @brief Run the HELLO version handshake, announcing the app's identity for display.

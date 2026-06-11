@@ -558,7 +558,11 @@ static OSStatus list_se_keys(CFTypeRef *result) {
 
   se_key_entry entries[64];
   size_t n = 0;
-  if (se_client_list((const uint8_t *)udid, strlen(udid), entries, 64, &n) != SE_OK) {
+  char app_id[256];
+  size_t app_id_len = current_app_id(app_id, sizeof(app_id));
+  if (se_client_list((const uint8_t *)udid, strlen(udid),
+                     app_id_len ? (const uint8_t *)app_id : NULL, app_id_len, entries, 64,
+                     &n) != SE_OK) {
     return errSecItemNotFound;
   }
 
@@ -624,9 +628,12 @@ static OSStatus hook_item_copy_matching(CFDictionaryRef query, CFTypeRef *result
     // through to the original, so a tag that is not ours behaves exactly as before.
     const char *udid = getenv("SIMULATOR_UDID");
     if (udid && udid[0] != '\0') {
+      char app_id[256];
+      size_t app_id_len = current_app_id(app_id, sizeof(app_id));
       se_response response;
       se_status st = se_client_find_by_tag((const uint8_t *)udid, strlen(udid),
                                            CFDataGetBytePtr(tag), (size_t)CFDataGetLength(tag),
+                                           app_id_len ? (const uint8_t *)app_id : NULL, app_id_len,
                                            &response);
       if (st == SE_OK && response.kind == SE_RESP_FOUND) {
         SecKeyRef rebuilt = make_public_key(response.public_key, response.public_key_len);
@@ -692,10 +699,14 @@ static OSStatus hook_item_update(CFDictionaryRef query, CFDictionaryRef attribut
       if (newTag && CFGetTypeID(newTag) == CFDataGetTypeID()) {
         const char *udid = getenv("SIMULATOR_UDID");
         if (udid && udid[0] != '\0') {
+          char app_id[256];
+          size_t app_id_len = current_app_id(app_id, sizeof(app_id));
           se_response response;
           se_status st = se_client_update(handle, handle_len, (const uint8_t *)udid, strlen(udid),
                                           CFDataGetBytePtr((CFDataRef)newTag),
-                                          (size_t)CFDataGetLength((CFDataRef)newTag), &response);
+                                          (size_t)CFDataGetLength((CFDataRef)newTag),
+                                          app_id_len ? (const uint8_t *)app_id : NULL, app_id_len,
+                                          &response);
           if (st != SE_OK) {
             rc = errSecNotAvailable;
           } else if (response.kind != SE_RESP_UPDATED) {

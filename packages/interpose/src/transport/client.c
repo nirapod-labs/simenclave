@@ -179,23 +179,25 @@ se_status se_client_generate_persistent(int biometry, uint64_t flags, const uint
 }
 
 se_status se_client_find_by_tag(const uint8_t *udid, size_t udid_len, const uint8_t *app_tag,
-                                size_t app_tag_len, se_response *out) {
+                                size_t app_tag_len, const uint8_t *app_id, size_t app_id_len,
+                                se_response *out) {
   uint8_t token[32];
   if (read_token(token) != 0) return SE_ERR_TRUNCATED;
-  uint8_t payload[256];
+  uint8_t payload[512];
   return do_request(payload,
                     se_encode_find_by_tag(token, sizeof(token), udid, udid_len, app_tag, app_tag_len,
-                                          payload, sizeof(payload)),
+                                          app_id, app_id_len, payload, sizeof(payload)),
                     out);
 }
 
-se_status se_client_list(const uint8_t *udid, size_t udid_len, se_key_entry *entries,
-                         size_t max_entries, size_t *count) {
+se_status se_client_list(const uint8_t *udid, size_t udid_len, const uint8_t *app_id,
+                         size_t app_id_len, se_key_entry *entries, size_t max_entries,
+                         size_t *count) {
   uint8_t token[32];
   if (read_token(token) != 0) return SE_ERR_TRUNCATED;
-  uint8_t payload[256];
-  int payload_len = se_encode_list_keys(token, sizeof(token), udid, udid_len, payload,
-                                        sizeof(payload));
+  uint8_t payload[512];
+  int payload_len = se_encode_list_keys(token, sizeof(token), udid, udid_len, app_id, app_id_len,
+                                        payload, sizeof(payload));
   // A list response holds every key for the simulator; size for a generous count of keys.
   uint8_t response[16384];
   size_t response_len = 0;
@@ -281,13 +283,14 @@ se_status se_client_get_pubkey(const uint8_t *handle, size_t handle_len, se_resp
 
 se_status se_client_update(const uint8_t *handle, size_t handle_len, const uint8_t *udid,
                            size_t udid_len, const uint8_t *app_tag, size_t app_tag_len,
-                           se_response *out) {
+                           const uint8_t *app_id, size_t app_id_len, se_response *out) {
   uint8_t token[32];
   if (read_token(token) != 0) return SE_ERR_TRUNCATED;
-  uint8_t payload[256];
+  uint8_t payload[512];
   return do_request(payload,
                     se_encode_update(token, sizeof(token), handle, handle_len, udid, udid_len,
-                                     app_tag, app_tag_len, payload, sizeof(payload)),
+                                     app_tag, app_tag_len, app_id, app_id_len, payload,
+                                     sizeof(payload)),
                     out);
 }
 

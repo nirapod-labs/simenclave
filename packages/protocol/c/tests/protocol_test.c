@@ -153,7 +153,7 @@ int main(void) {
 
   // FIND_BY_TAG { 0:6, 7:token(32), 15:udid("AB"), 16:appTag(2) } in canonical form.
   uint8_t app_tag[2] = {0x01, 0x02};
-  n = se_encode_find_by_tag(token, sizeof(token), (const uint8_t *)"AB", 2, app_tag, 2, buf,
+  n = se_encode_find_by_tag(token, sizeof(token), (const uint8_t *)"AB", 2, app_tag, 2, NULL, 0, buf,
                             sizeof(buf));
   uint8_t find_prefix[] = {0xA4, 0x00, 0x06, 0x07, 0x58, 0x20};
   CHECK(n == 46 && memcmp(buf, find_prefix, sizeof(find_prefix)) == 0 &&
@@ -161,6 +161,15 @@ int main(void) {
             buf[40] == 'A' && buf[41] == 'B' && buf[42] == 0x10 && buf[43] == 0x42 &&
             buf[44] == 0x01 && buf[45] == 0x02,
         "find_by_tag bytes");
+
+  // FIND_BY_TAG scoped to an app: { 0:6, 7:token, 14:"a", 15:"AB", 16:appTag }. The app id (key 14)
+  // slots in after the token, growing the map to 5 (0xA5) and isolating the lookup per app.
+  n = se_encode_find_by_tag(token, sizeof(token), (const uint8_t *)"AB", 2, app_tag, 2,
+                            (const uint8_t *)"a", 1, buf, sizeof(buf));
+  uint8_t find_scoped_tail[] = {0x0E, 0x61, 0x61, 0x0F, 0x62, 'A', 'B', 0x10, 0x42, 0x01, 0x02};
+  CHECK(n == 38 + (int)sizeof(find_scoped_tail) && buf[0] == 0xA5 &&
+            memcmp(buf + 38, find_scoped_tail, sizeof(find_scoped_tail)) == 0,
+        "find_by_tag app-scoped bytes");
 
   // Decode a FIND_BY_TAG-ok (found) response { 0:6, 1:0, 2:handle(4), 3:pubkey(5) }.
   uint8_t found_resp[] = {0xA4, 0x00, 0x06, 0x01, 0x00, 0x02, 0x44, 1, 2,

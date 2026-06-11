@@ -69,7 +69,7 @@ public struct RequestRouter: Sendable {
         let line = "[helper] served \(label)" + (appID.map { " app=\($0)" } ?? "")
             + (displayName.map { " name=\($0)" } ?? "") + "\n"
         FileHandle.standardError.write(Data(line.utf8))
-        let response = handle(request)
+        let response = handle(request, appID: appID)
         // Reported after handling, carrying the key handle the op created or removed, so the UI
         // tracks a live per-app count: the minted handle on a successful GENERATE, the removed
         // handle on a DELETE.
@@ -122,7 +122,7 @@ public struct RequestRouter: Sendable {
         }
     }
 
-    func handle(_ request: Request) -> Response {
+    func handle(_ request: Request, appID: String?) -> Response {
         do {
             switch request {
             case let .hello(version):
@@ -137,6 +137,7 @@ public struct RequestRouter: Sendable {
                     protection: accessControl?.protection,
                     persistentTag: persistent?.appTag,
                     udid: persistent?.udid,
+                    appID: appID,
                     keyType: keyType,
                     keySizeInBits: keySizeInBits.map { UInt($0) })
                 return .generated(handle: handle, publicKey: publicKey)
@@ -153,12 +154,13 @@ public struct RequestRouter: Sendable {
                 // relaunched app reloads it by tag. A miss is the device's item-not-found,
                 // which is also what a real device returns after the key is gone. Durable
                 // across helper restarts and Mac reboot is M5 (it needs the signed helper).
-                let (handle, publicKey) = try service.findByTag(appTag: appTag, udid: udid)
+                let (handle, publicKey) = try service.findByTag(appTag: appTag, udid: udid,
+                                                                appID: appID)
                 return .found(handle: handle, publicKey: publicKey)
             case let .listKeys(udid):
-                // The native enumeration behind an app's kSecMatchLimitAll: every key the
-                // helper holds for this simulator. An empty list is a valid result.
-                let entries = service.listKeys(udid: udid).map {
+                // The native enumeration behind an app's kSecMatchLimitAll: every key the helper
+                // holds for this app on this simulator. An empty list is a valid result.
+                let entries = service.listKeys(udid: udid, appID: appID).map {
                     KeyEntry(handle: $0.handle, publicKey: $0.publicKey, appTag: $0.appTag)
                 }
                 return .listed(keys: entries)
@@ -182,7 +184,7 @@ public struct RequestRouter: Sendable {
                     handle: handle, algorithm: algorithm, peerPublicKey: peerPublicKey,
                     parameters: parameters))
             case let .updateTag(handle, appTag, udid):
-                try service.updateTag(handle: handle, appTag: appTag, udid: udid)
+                try service.updateTag(handle: handle, appTag: appTag, udid: udid, appID: appID)
                 return .updated
             }
         } catch SecureEnclaveService.Failure.unknownHandle {
