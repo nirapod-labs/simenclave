@@ -23,6 +23,7 @@
 #include "../registry/access_control.h"
 #include "../registry/shadow_ref.h"
 #include "../transport/client.h"
+#include "app_icon.h"
 
 #include <Security/Security.h>
 #include <pthread.h>
@@ -163,9 +164,12 @@ static void announce_identity(void) {
   size_t id_len = current_app_id(app_id, sizeof(app_id));
   char name[256];
   size_t name_len = current_app_display_name(name, sizeof(name));
+  uint8_t icon[8192];
+  size_t icon_len = se_copy_app_icon_png(icon, sizeof(icon));
   se_response resp;
   se_client_hello(1, id_len ? (const uint8_t *)app_id : NULL, id_len,
-                  name_len ? (const uint8_t *)name : NULL, name_len, NULL, 0, &resp);
+                  name_len ? (const uint8_t *)name : NULL, name_len,
+                  icon_len ? icon : NULL, icon_len, &resp);
 }
 
 static void announce_identity_once(void) {

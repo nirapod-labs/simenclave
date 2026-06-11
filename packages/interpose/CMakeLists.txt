@@ -3,6 +3,7 @@
 # their own entry point, so both reuse this.
 add_library(interpose_core STATIC
   src/hooks/sec_key_hooks.c
+  src/hooks/app_icon.m
   src/registry/shadow_ref.c
   src/registry/access_control.c
   src/transport/client.c
@@ -14,10 +15,12 @@ target_link_libraries(interpose_core PUBLIC se_protocol dobby_bundle)
 set(SE_FRAMEWORKS "-framework Security" "-framework CoreFoundation")
 
 if(SIMENCLAVE_SIM_SLICE)
-  # The injectable dylib: the core plus the dyld load constructor.
+  # The injectable dylib: the core plus the dyld load constructor. UIKit, Foundation, and
+  # CoreGraphics back app_icon.m, which renders the guest app's icon to a small PNG.
   add_library(simenclave_interpose SHARED src/entry.c)
   set_target_properties(simenclave_interpose PROPERTIES PREFIX "" OUTPUT_NAME simenclave-interpose)
-  target_link_libraries(simenclave_interpose PRIVATE interpose_core ${SE_FRAMEWORKS})
+  target_link_libraries(simenclave_interpose PRIVATE interpose_core ${SE_FRAMEWORKS}
+    "-framework UIKit" "-framework Foundation" "-framework CoreGraphics")
 
   # The in-simulator demo links no interposer; it is injected at spawn.
   add_executable(sim_demo tests/sim_demo.c)

@@ -14,6 +14,7 @@ import SimEnclaveHostCore
 struct AppActivity: Identifiable {
     let id: String
     var name: String?
+    var iconPNG: Data?
     var keys: Int
     var lastSeen: Date
 }
@@ -205,7 +206,7 @@ final class HelperModel {
     /// the app's identity and creates or names the entry; a GENERATE adds the minted key to the
     /// live count and remembers its owner; a DELETE removes it from the count. The display name,
     /// when present, is the router-sanitized one.
-    func record(op: String, appID: String?, displayName: String?, handle: Data?) {
+    func record(op: String, appID: String?, displayName: String?, iconPNG: Data?, handle: Data?) {
         totalOps += 1
         // A DELETE carries no app id; attribute it to the app that minted the handle, so the live
         // count drops for the right app.
@@ -222,10 +223,13 @@ final class HelperModel {
         if let found = apps.firstIndex(where: { $0.id == appID }) {
             i = found
         } else {
-            apps.insert(AppActivity(id: appID, name: displayName, keys: 0, lastSeen: Date()), at: 0)
+            apps.insert(
+                AppActivity(id: appID, name: displayName, iconPNG: iconPNG, keys: 0,
+                            lastSeen: Date()), at: 0)
             i = 0
         }
         if let displayName { apps[i].name = displayName }
+        if let iconPNG { apps[i].iconPNG = iconPNG }
         if op == "GENERATE", let handle {
             handleOwner[handle] = appID
             apps[i].keys += 1
@@ -258,9 +262,10 @@ final class HelperModel {
     final class Observer: ServeObserver, @unchecked Sendable {
         weak var model: HelperModel?
         init(model: HelperModel) { self.model = model }
-        func served(op: String, appID: String?, displayName: String?, handle: Data?) {
+        func served(op: String, appID: String?, displayName: String?, iconPNG: Data?, handle: Data?) {
             Task { @MainActor [weak model] in
-                model?.record(op: op, appID: appID, displayName: displayName, handle: handle)
+                model?.record(op: op, appID: appID, displayName: displayName, iconPNG: iconPNG,
+                              handle: handle)
             }
         }
     }
