@@ -32,8 +32,7 @@ struct MenubarView: View {
 
     private var header: some View {
         HStack {
-            Image(systemName: "shield.lefthalf.filled").foregroundStyle(.tint)
-            Text("SimEnclave").font(.headline)
+            SimEnclaveWordmark(size: 17)
             Spacer()
             Toggle("", isOn: Binding(get: { model.running }, set: { _ in model.toggle() }))
                 .toggleStyle(.switch)
