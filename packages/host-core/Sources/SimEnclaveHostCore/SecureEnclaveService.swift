@@ -334,6 +334,14 @@ public final class SecureEnclaveService: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// How many keys the helper currently holds. Read straight from the store, so it counts every
+    /// key, including ones whose app is no longer in the menubar's connected-apps view.
+    public var keyCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return keys.count
+    }
+
     private func exportPublicKey(of privateKey: SecKey) throws -> Data {
         guard let publicKey = SecKeyCopyPublicKey(privateKey) else {
             throw Failure.publicKeyExport("SecKeyCopyPublicKey returned nil")

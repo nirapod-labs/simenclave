@@ -76,8 +76,9 @@ final class HelperModel {
     /// The per-user directory the helper writes its token and port to.
     var dataDirectory: String { TokenFile.defaultDirectory() }
 
-    /// The live total of keys held across every connected app.
-    var totalKeys: Int { apps.reduce(0) { $0 + $1.keys } }
+    /// The live total of keys the helper holds, read from the store so it counts keys whose app
+    /// has dropped out of the connected-apps view, not just the currently connected ones.
+    var totalKeys: Int { service.keyCount }
 
     /// Reveal the data directory in Finder, the settings "open data directory" action.
     func openDataDirectory() {
