@@ -8,6 +8,10 @@ import XCTest
 
 @testable import SimEnclaveHostCore
 
+/// The SecKeyAlgorithm raw string these digest-mode tests sign under, the same SHA-256 pair
+/// the verify path checks.
+private let sha256DigestAlgorithm = SecKeyAlgorithm.ecdsaSignatureDigestX962SHA256.rawValue as String
+
 /// These run only on a Mac with a real Secure Enclave (Apple Silicon or T2). On a
 /// hosted CI VM with no SEP they skip, so the suite is green everywhere and
 /// actually exercises hardware on a self-hosted runner or a developer Mac.
@@ -23,11 +27,62 @@ final class SecureEnclaveServiceTests: XCTestCase {
         let digest = Data(SHA256.hash(data: Data("simenclave round-trip".utf8)))
         XCTAssertEqual(digest.count, 32)
 
-        let signature = try service.sign(handle: handle, digest: digest)
+        let signature = try service.sign(handle: handle, algorithm: sha256DigestAlgorithm, input: digest)
         XCTAssertTrue(
             verifies(digest: digest, signature: signature, x963: x963),
             "the DER signature must verify under the exported public key, digest mode"
         )
+    }
+
+    func testExplicitP256TypeAndSizeStillGenerate() throws {
+        let service = SecureEnclaveService()
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+        // The app's own EC P-256 request, relayed verbatim, must mint a key just as the
+        // default path does, so a faithful request is never penalised.
+        let (_, x963) = try service.generate(
+            keyType: kSecAttrKeyTypeECSECPrimeRandom as String, keySizeInBits: 256)
+        XCTAssertEqual(x963.count, 65, "X9.63 uncompressed P-256 public key is 65 bytes")
+    }
+
+    func testWrongKeyTypeIsRejectedByTheEnclave() throws {
+        let service = SecureEnclaveService()
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+        // The Secure Enclave only mints P-256 EC keys. An RSA request under the SE token must
+        // surface the chip's own rejection, not a silently substituted P-256 key.
+        XCTAssertThrowsError(
+            try service.generate(keyType: kSecAttrKeyTypeRSA as String, keySizeInBits: 2048)
+        ) { error in
+            guard case SecureEnclaveService.Failure.keyGeneration = error else {
+                return XCTFail("expected the enclave's keyGeneration rejection, got \(error)")
+            }
+        }
+    }
+
+    func testUpdateTagRetagsForFindAndEnumerate() throws {
+        let service = SecureEnclaveService()
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+        let udid = "TEST-UDID"
+        let oldTag = Data("tag.old".utf8)
+        let newTag = Data("tag.new".utf8)
+        let (handle, _) = try service.generate(persistentTag: oldTag, udid: udid)
+        try service.updateTag(handle: handle, appTag: newTag, udid: udid)
+        // The new tag now resolves to the same handle; the old tag no longer resolves.
+        XCTAssertEqual(try service.findByTag(appTag: newTag, udid: udid).handle, handle)
+        XCTAssertThrowsError(try service.findByTag(appTag: oldTag, udid: udid))
+        // Enumerate reflects the rename.
+        let tags = service.listKeys(udid: udid).map(\.appTag)
+        XCTAssertTrue(tags.contains(newTag), "the new tag must enumerate")
+        XCTAssertFalse(tags.contains(oldTag), "the old tag must be gone")
+    }
+
+    func testUpdateTagUnknownHandleFails() throws {
+        let service = SecureEnclaveService()
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+        XCTAssertThrowsError(
+            try service.updateTag(handle: Data([9, 9, 9, 9]), appTag: Data("x".utf8), udid: "U")
+        ) { error in
+            XCTAssertEqual(error as? SecureEnclaveService.Failure, .unknownHandle)
+        }
     }
 
     func testPublicKeyIsStableForAHandle() throws {
@@ -43,7 +98,8 @@ final class SecureEnclaveServiceTests: XCTestCase {
         try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
 
         XCTAssertThrowsError(
-            try service.sign(handle: Data([0, 1, 2, 3]), digest: Data(repeating: 0, count: 32))
+            try service.sign(handle: Data([0, 1, 2, 3]), algorithm: sha256DigestAlgorithm,
+                             input: Data(repeating: 0, count: 32))
         ) { error in
             XCTAssertEqual(error as? SecureEnclaveService.Failure, .unknownHandle)
         }
@@ -60,7 +116,7 @@ final class SecureEnclaveServiceTests: XCTestCase {
         let service = SecureEnclaveService(biometricGate: gate)
         try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
         let (handle, _) = try service.generate(requiresBiometry: true, accessFlags: Self.promptFlags)
-        let signature = try service.sign(handle: handle, digest: Data(repeating: 0x5A, count: 32))
+        let signature = try service.sign(handle: handle, algorithm: sha256DigestAlgorithm, input: Data(repeating: 0x5A, count: 32))
         XCTAssertEqual(signature, canned, "a prompted sign is delegated to the gate")
         XCTAssertEqual(gate.callCount, 1)
     }
@@ -70,7 +126,7 @@ final class SecureEnclaveServiceTests: XCTestCase {
         let service = SecureEnclaveService(biometricGate: gate)
         try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
         let (handle, _) = try service.generate(requiresBiometry: true, accessFlags: Self.promptFlags)
-        XCTAssertThrowsError(try service.sign(handle: handle, digest: Data(repeating: 0x5A, count: 32)))
+        XCTAssertThrowsError(try service.sign(handle: handle, algorithm: sha256DigestAlgorithm, input: Data(repeating: 0x5A, count: 32)))
     }
 
     func testPromptedSignWithoutGateFailsClosed() throws {
@@ -78,7 +134,7 @@ final class SecureEnclaveServiceTests: XCTestCase {
         try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
         let (handle, _) = try service.generate(requiresBiometry: true, accessFlags: Self.promptFlags)
         XCTAssertThrowsError(
-            try service.sign(handle: handle, digest: Data(repeating: 0x5A, count: 32))
+            try service.sign(handle: handle, algorithm: sha256DigestAlgorithm, input: Data(repeating: 0x5A, count: 32))
         ) { error in
             XCTAssertEqual(error as? SecureEnclaveService.Failure, .biometryUnavailable)
         }
@@ -90,7 +146,7 @@ final class SecureEnclaveServiceTests: XCTestCase {
         try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
         let (handle, x963) = try service.generate() // silent
         let digest = Data(SHA256.hash(data: Data("silent skips the gate".utf8)))
-        let signature = try service.sign(handle: handle, digest: digest)
+        let signature = try service.sign(handle: handle, algorithm: sha256DigestAlgorithm, input: digest)
         XCTAssertEqual(gate.callCount, 0, "a silent sign must not reach the gate")
         XCTAssertTrue(verifies(digest: digest, signature: signature, x963: x963))
     }
@@ -102,7 +158,7 @@ final class SecureEnclaveServiceTests: XCTestCase {
         let service = SecureEnclaveService(biometricGate: gate)
         try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
         let (handle, _) = try service.generate(requiresBiometry: false, accessFlags: Self.promptFlags)
-        XCTAssertThrowsError(try service.sign(handle: handle, digest: Data(repeating: 0x5A, count: 32)))
+        XCTAssertThrowsError(try service.sign(handle: handle, algorithm: sha256DigestAlgorithm, input: Data(repeating: 0x5A, count: 32)))
         XCTAssertEqual(gate.callCount, 1, "presence flags route through the gate regardless of the class")
     }
 
@@ -115,7 +171,7 @@ final class SecureEnclaveServiceTests: XCTestCase {
         for _ in 0 ..< 4 {
             group.enter()
             DispatchQueue.global().async {
-                _ = try? service.sign(handle: handle, digest: Data(repeating: 0x5A, count: 32))
+                _ = try? service.sign(handle: handle, algorithm: sha256DigestAlgorithm, input: Data(repeating: 0x5A, count: 32))
                 group.leave()
             }
         }
@@ -161,7 +217,7 @@ final class MockBiometricGate: BiometricGate, @unchecked Sendable {
         return calls
     }
 
-    func promptedSign(key _: SecKey, digest _: Data, reason _: String) throws -> Data {
+    func promptedSign(key _: SecKey, algorithm _: String, input _: Data, reason _: String) throws -> Data {
         lock.lock(); calls += 1; lock.unlock()
         switch behavior {
         case let .authorize(bytes): return bytes
@@ -182,7 +238,7 @@ final class ConcurrencyRecordingGate: BiometricGate, @unchecked Sendable {
         return peak
     }
 
-    func promptedSign(key _: SecKey, digest _: Data, reason _: String) throws -> Data {
+    func promptedSign(key _: SecKey, algorithm _: String, input _: Data, reason _: String) throws -> Data {
         lock.lock(); active += 1; peak = max(peak, active); lock.unlock()
         Thread.sleep(forTimeInterval: 0.05)
         lock.lock(); active -= 1; lock.unlock()

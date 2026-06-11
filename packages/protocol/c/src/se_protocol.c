@@ -41,6 +41,17 @@ enum {
   K_APP_ID = 14,
   K_UDID = 15,
   K_APP_TAG = 16,
+  K_ENTRIES = 17,
+  K_OPERATION = 18,
+  K_ALGORITHM = 19,
+  K_FLAG = 20,
+  K_ATTRIBUTES = 21,
+  K_CIPHERTEXT = 22,
+  K_PEER_KEY = 23,
+  K_RESULT = 24,
+  K_PARAMS = 25,
+  K_KEY_TYPE = 26,
+  K_KEY_SIZE = 27,
 };
 // ops and status
 enum {
@@ -50,6 +61,12 @@ enum {
   OP_SIGN = 4,
   OP_DELETE = 5,
   OP_FIND_BY_TAG = 6,
+  OP_LIST_KEYS = 7,
+  OP_IS_ALGO_SUPPORTED = 8,
+  OP_COPY_ATTRIBUTES = 9,
+  OP_DECRYPT = 10,
+  OP_KEY_EXCHANGE = 11,
+  OP_UPDATE = 12,
   ST_OK = 0,
   ST_ERROR = 1
 };
@@ -105,11 +122,24 @@ static void w_bytes(writer *w, uint8_t major, const uint8_t *data, size_t len) {
   w->pos += len;
 }
 
+// Append the requested key type (26) and size in bits (27) when the interposer relayed them, so
+// the helper hands the real SecKeyCreateRandomKey the exact type and size the app asked for and
+// the SEP rejects a wrong one. A NULL type keeps the helper's P-256 default (pre-existing tests).
+static void w_key_type_size(writer *w, const uint8_t *key_type, size_t key_type_len,
+                            uint64_t key_size) {
+  if (!key_type) return;
+  w_head(w, CBOR_UINT, K_KEY_TYPE);
+  w_bytes(w, CBOR_TEXT, key_type, key_type_len);
+  w_head(w, CBOR_UINT, K_KEY_SIZE);
+  w_head(w, CBOR_UINT, key_size);
+}
+
 int se_encode_generate(const uint8_t *token, size_t token_len, const uint8_t *app_id,
-                       size_t app_id_len, uint8_t *out, size_t cap) {
+                       size_t app_id_len, const uint8_t *key_type, size_t key_type_len,
+                       uint64_t key_size, uint8_t *out, size_t cap) {
   writer w = {out, cap, 0, 0};
   int has_app = app_id && app_id_len > 0;
-  w_head(&w, CBOR_MAP, has_app ? 3 : 2);
+  w_head(&w, CBOR_MAP, (has_app ? 3 : 2) + (key_type ? 2 : 0));
   w_head(&w, CBOR_UINT, K_OP);
   w_head(&w, CBOR_UINT, OP_GENERATE);
   w_head(&w, CBOR_UINT, K_TOKEN);
@@ -118,16 +148,18 @@ int se_encode_generate(const uint8_t *token, size_t token_len, const uint8_t *ap
     w_head(&w, CBOR_UINT, K_APP_ID);
     w_bytes(&w, CBOR_TEXT, app_id, app_id_len);
   }
+  w_key_type_size(&w, key_type, key_type_len, key_size);
   return w.overflow ? -1 : (int)w.pos;
 }
 
 int se_encode_generate_ac(const uint8_t *token, size_t token_len, int biometry, uint64_t flags,
                           const uint8_t *protection, size_t protection_len, const uint8_t *app_id,
-                          size_t app_id_len, uint8_t *out, size_t cap) {
+                          size_t app_id_len, const uint8_t *key_type, size_t key_type_len,
+                          uint64_t key_size, uint8_t *out, size_t cap) {
   writer w = {out, cap, 0, 0};
   int has_app = app_id && app_id_len > 0;
-  // map: op, token, [class if biometry], accessFlags, protection, [app id]. Keys ascending.
-  w_head(&w, CBOR_MAP, (biometry ? 5 : 4) + (has_app ? 1 : 0));
+  // map: op, token, [class if biometry], accessFlags, protection, [app id], [type, size]. Ascending.
+  w_head(&w, CBOR_MAP, (biometry ? 5 : 4) + (has_app ? 1 : 0) + (key_type ? 2 : 0));
   w_head(&w, CBOR_UINT, K_OP);
   w_head(&w, CBOR_UINT, OP_GENERATE);
   w_head(&w, CBOR_UINT, K_TOKEN);
@@ -144,21 +176,60 @@ int se_encode_generate_ac(const uint8_t *token, size_t token_len, int biometry, 
     w_head(&w, CBOR_UINT, K_APP_ID);
     w_bytes(&w, CBOR_TEXT, app_id, app_id_len);
   }
+  w_key_type_size(&w, key_type, key_type_len, key_size);
+  return w.overflow ? -1 : (int)w.pos;
+}
+
+int se_encode_generate_ac_persistent(const uint8_t *token, size_t token_len, int biometry,
+                                     uint64_t flags, const uint8_t *protection, size_t protection_len,
+                                     const uint8_t *app_id, size_t app_id_len, const uint8_t *udid,
+                                     size_t udid_len, const uint8_t *app_tag, size_t app_tag_len,
+                                     const uint8_t *key_type, size_t key_type_len, uint64_t key_size,
+                                     uint8_t *out, size_t cap) {
+  writer w = {out, cap, 0, 0};
+  int has_app = app_id && app_id_len > 0;
+  // map: op, token, [class if biometry], accessFlags, protection, [app id], udid, app tag, [type,
+  // size]. Keys ascending; the udid (15) and tag (16) make the key findable on a later relaunch.
+  w_head(&w, CBOR_MAP, (biometry ? 5 : 4) + (has_app ? 1 : 0) + 2 + (key_type ? 2 : 0));
+  w_head(&w, CBOR_UINT, K_OP);
+  w_head(&w, CBOR_UINT, OP_GENERATE);
+  w_head(&w, CBOR_UINT, K_TOKEN);
+  w_bytes(&w, CBOR_BYTES, token, token_len);
+  if (biometry) {
+    w_head(&w, CBOR_UINT, K_CLASS);
+    w_head(&w, CBOR_UINT, 1);
+  }
+  w_head(&w, CBOR_UINT, K_ACCESS_FLAGS);
+  w_head(&w, CBOR_UINT, flags);
+  w_head(&w, CBOR_UINT, K_PROTECTION);
+  w_bytes(&w, CBOR_TEXT, protection, protection_len);
+  if (has_app) {
+    w_head(&w, CBOR_UINT, K_APP_ID);
+    w_bytes(&w, CBOR_TEXT, app_id, app_id_len);
+  }
+  w_head(&w, CBOR_UINT, K_UDID);
+  w_bytes(&w, CBOR_TEXT, udid, udid_len);
+  w_head(&w, CBOR_UINT, K_APP_TAG);
+  w_bytes(&w, CBOR_BYTES, app_tag, app_tag_len);
+  w_key_type_size(&w, key_type, key_type_len, key_size);
   return w.overflow ? -1 : (int)w.pos;
 }
 
 int se_encode_sign(const uint8_t *token, size_t token_len, const uint8_t *handle, size_t handle_len,
-                   const uint8_t *digest, size_t digest_len, uint8_t *out, size_t cap) {
+                   const uint8_t *algorithm, size_t algorithm_len, const uint8_t *input,
+                   size_t input_len, uint8_t *out, size_t cap) {
   writer w = {out, cap, 0, 0};
-  w_head(&w, CBOR_MAP, 4); // map(4)
+  w_head(&w, CBOR_MAP, 5); // map(5): op, handle, input, token, algorithm, keys ascending
   w_head(&w, CBOR_UINT, K_OP);
   w_head(&w, CBOR_UINT, OP_SIGN);
   w_head(&w, CBOR_UINT, K_HANDLE);
   w_bytes(&w, CBOR_BYTES, handle, handle_len);
   w_head(&w, CBOR_UINT, K_DIGEST);
-  w_bytes(&w, CBOR_BYTES, digest, digest_len);
+  w_bytes(&w, CBOR_BYTES, input, input_len);
   w_head(&w, CBOR_UINT, K_TOKEN);
   w_bytes(&w, CBOR_BYTES, token, token_len);
+  w_head(&w, CBOR_UINT, K_ALGORITHM);
+  w_bytes(&w, CBOR_TEXT, algorithm, algorithm_len);
   return w.overflow ? -1 : (int)w.pos;
 }
 
@@ -181,9 +252,83 @@ int se_encode_get_pubkey(const uint8_t *token, size_t token_len, const uint8_t *
   return encode_handle_op(OP_GET_PUBKEY, token, token_len, handle, handle_len, out, cap);
 }
 
+int se_encode_copy_attributes(const uint8_t *token, size_t token_len, const uint8_t *handle,
+                              size_t handle_len, uint8_t *out, size_t cap) {
+  return encode_handle_op(OP_COPY_ATTRIBUTES, token, token_len, handle, handle_len, out, cap);
+}
+
+// DECRYPT and KEY_EXCHANGE share a shape: op, handle, token, algorithm (19), and a payload
+// bytes field (the ciphertext key 22, or the peer public key 23). Keys ascending.
+static int encode_crypto_op(uint64_t op, uint64_t payload_key, const uint8_t *token,
+                            size_t token_len, const uint8_t *handle, size_t handle_len,
+                            const uint8_t *algorithm, size_t algorithm_len, const uint8_t *payload,
+                            size_t payload_len, uint8_t *out, size_t cap) {
+  writer w = {out, cap, 0, 0};
+  w_head(&w, CBOR_MAP, 5);
+  w_head(&w, CBOR_UINT, K_OP);
+  w_head(&w, CBOR_UINT, op);
+  w_head(&w, CBOR_UINT, K_HANDLE);
+  w_bytes(&w, CBOR_BYTES, handle, handle_len);
+  w_head(&w, CBOR_UINT, K_TOKEN);
+  w_bytes(&w, CBOR_BYTES, token, token_len);
+  w_head(&w, CBOR_UINT, K_ALGORITHM);
+  w_bytes(&w, CBOR_TEXT, algorithm, algorithm_len);
+  w_head(&w, CBOR_UINT, payload_key);
+  w_bytes(&w, CBOR_BYTES, payload, payload_len);
+  return w.overflow ? -1 : (int)w.pos;
+}
+
+int se_encode_decrypt(const uint8_t *token, size_t token_len, const uint8_t *handle,
+                      size_t handle_len, const uint8_t *algorithm, size_t algorithm_len,
+                      const uint8_t *ciphertext, size_t ciphertext_len, uint8_t *out, size_t cap) {
+  return encode_crypto_op(OP_DECRYPT, K_CIPHERTEXT, token, token_len, handle, handle_len, algorithm,
+                          algorithm_len, ciphertext, ciphertext_len, out, cap);
+}
+
+int se_encode_key_exchange(const uint8_t *token, size_t token_len, const uint8_t *handle,
+                           size_t handle_len, const uint8_t *algorithm, size_t algorithm_len,
+                           const uint8_t *peer_key, size_t peer_key_len, const uint8_t *params,
+                           size_t params_len, uint8_t *out, size_t cap) {
+  // Like encode_crypto_op plus the exchange parameters (25): a serialized plist of the caller's
+  // requested size and shared info, so a KDF variant runs with the bytes a device would use.
+  writer w = {out, cap, 0, 0};
+  w_head(&w, CBOR_MAP, 6); // op, handle, token, algorithm, peer key, params, keys ascending
+  w_head(&w, CBOR_UINT, K_OP);
+  w_head(&w, CBOR_UINT, OP_KEY_EXCHANGE);
+  w_head(&w, CBOR_UINT, K_HANDLE);
+  w_bytes(&w, CBOR_BYTES, handle, handle_len);
+  w_head(&w, CBOR_UINT, K_TOKEN);
+  w_bytes(&w, CBOR_BYTES, token, token_len);
+  w_head(&w, CBOR_UINT, K_ALGORITHM);
+  w_bytes(&w, CBOR_TEXT, algorithm, algorithm_len);
+  w_head(&w, CBOR_UINT, K_PEER_KEY);
+  w_bytes(&w, CBOR_BYTES, peer_key, peer_key_len);
+  w_head(&w, CBOR_UINT, K_PARAMS);
+  w_bytes(&w, CBOR_BYTES, params, params_len);
+  return w.overflow ? -1 : (int)w.pos;
+}
+
 int se_encode_delete(const uint8_t *token, size_t token_len, const uint8_t *handle,
                      size_t handle_len, uint8_t *out, size_t cap) {
   return encode_handle_op(OP_DELETE, token, token_len, handle, handle_len, out, cap);
+}
+
+int se_encode_update(const uint8_t *token, size_t token_len, const uint8_t *handle,
+                     size_t handle_len, const uint8_t *udid, size_t udid_len,
+                     const uint8_t *app_tag, size_t app_tag_len, uint8_t *out, size_t cap) {
+  writer w = {out, cap, 0, 0};
+  w_head(&w, CBOR_MAP, 5); // op, handle, token, udid, app tag, keys ascending
+  w_head(&w, CBOR_UINT, K_OP);
+  w_head(&w, CBOR_UINT, OP_UPDATE);
+  w_head(&w, CBOR_UINT, K_HANDLE);
+  w_bytes(&w, CBOR_BYTES, handle, handle_len);
+  w_head(&w, CBOR_UINT, K_TOKEN);
+  w_bytes(&w, CBOR_BYTES, token, token_len);
+  w_head(&w, CBOR_UINT, K_UDID);
+  w_bytes(&w, CBOR_TEXT, udid, udid_len);
+  w_head(&w, CBOR_UINT, K_APP_TAG);
+  w_bytes(&w, CBOR_BYTES, app_tag, app_tag_len);
+  return w.overflow ? -1 : (int)w.pos;
 }
 
 int se_encode_hello(const uint8_t *token, size_t token_len, uint64_t version, uint8_t *out,
@@ -212,6 +357,37 @@ int se_encode_find_by_tag(const uint8_t *token, size_t token_len, const uint8_t 
   w_bytes(&w, CBOR_TEXT, udid, udid_len);
   w_head(&w, CBOR_UINT, K_APP_TAG);
   w_bytes(&w, CBOR_BYTES, app_tag, app_tag_len);
+  return w.overflow ? -1 : (int)w.pos;
+}
+
+int se_encode_list_keys(const uint8_t *token, size_t token_len, const uint8_t *udid, size_t udid_len,
+                        uint8_t *out, size_t cap) {
+  writer w = {out, cap, 0, 0};
+  w_head(&w, CBOR_MAP, 3); // map(3): op, token, udid, keys ascending
+  w_head(&w, CBOR_UINT, K_OP);
+  w_head(&w, CBOR_UINT, OP_LIST_KEYS);
+  w_head(&w, CBOR_UINT, K_TOKEN);
+  w_bytes(&w, CBOR_BYTES, token, token_len);
+  w_head(&w, CBOR_UINT, K_UDID);
+  w_bytes(&w, CBOR_TEXT, udid, udid_len);
+  return w.overflow ? -1 : (int)w.pos;
+}
+
+int se_encode_is_algorithm_supported(const uint8_t *token, size_t token_len, const uint8_t *handle,
+                                     size_t handle_len, uint64_t operation, const uint8_t *algorithm,
+                                     size_t algorithm_len, uint8_t *out, size_t cap) {
+  writer w = {out, cap, 0, 0};
+  w_head(&w, CBOR_MAP, 5); // map(5): op, handle, token, operation, algorithm, keys ascending
+  w_head(&w, CBOR_UINT, K_OP);
+  w_head(&w, CBOR_UINT, OP_IS_ALGO_SUPPORTED);
+  w_head(&w, CBOR_UINT, K_HANDLE);
+  w_bytes(&w, CBOR_BYTES, handle, handle_len);
+  w_head(&w, CBOR_UINT, K_TOKEN);
+  w_bytes(&w, CBOR_BYTES, token, token_len);
+  w_head(&w, CBOR_UINT, K_OPERATION);
+  w_head(&w, CBOR_UINT, operation);
+  w_head(&w, CBOR_UINT, K_ALGORITHM);
+  w_bytes(&w, CBOR_TEXT, algorithm, algorithm_len);
   return w.overflow ? -1 : (int)w.pos;
 }
 
@@ -381,6 +557,10 @@ se_status se_decode_response(const uint8_t *payload, size_t len, se_response *ou
     out->kind = SE_RESP_DELETED;
     return SE_OK;
   }
+  if (op->uintval == OP_UPDATE) {
+    out->kind = SE_RESP_UPDATED;
+    return SE_OK;
+  }
   if (op->uintval == OP_HELLO) {
     out->kind = SE_RESP_HELLO;
     const entry *ver = find(entries, count, K_VERSION);
@@ -395,5 +575,98 @@ se_status se_decode_response(const uint8_t *payload, size_t len, se_response *ou
     return copy_span(find(entries, count, K_PUBKEY), out->public_key, sizeof(out->public_key),
                      &out->public_key_len);
   }
+  if (op->uintval == OP_IS_ALGO_SUPPORTED) {
+    out->kind = SE_RESP_SUPPORTED;
+    const entry *flag = find(entries, count, K_FLAG);
+    if (!flag || flag->major != CBOR_UINT) return SE_ERR_MISSING;
+    out->supported = flag->uintval != 0 ? 1 : 0;
+    return SE_OK;
+  }
+  if (op->uintval == OP_DECRYPT || op->uintval == OP_KEY_EXCHANGE) {
+    out->kind = SE_RESP_RESULT;
+    return copy_span(find(entries, count, K_RESULT), out->result, sizeof(out->result),
+                     &out->result_len);
+  }
   return SE_ERR_OPCODE;
 }
+
+se_status se_decode_list_response(const uint8_t *payload, size_t len, se_key_entry *out_entries,
+                                  size_t max_entries, size_t *out_count) {
+  reader r = {payload, len, 0};
+  entry entries[8];
+  size_t count = 0;
+  se_status st = r_map(&r, entries, 8, &count);
+  if (st != SE_OK) return st;
+
+  const entry *status = find(entries, count, K_STATUS);
+  const entry *op = find(entries, count, K_OP);
+  if (!status || status->major != CBOR_UINT || !op || op->major != CBOR_UINT) return SE_ERR_MISSING;
+  if (status->uintval != ST_OK) return SE_ERR_STATUS; // an error rides se_decode_response
+  if (op->uintval != OP_LIST_KEYS) return SE_ERR_OPCODE;
+
+  const entry *blob = find(entries, count, K_ENTRIES);
+  if (!blob || blob->major != CBOR_BYTES) return SE_ERR_MISSING;
+
+  // Unpack the blob: u16 count, then per entry u8 handle_len + handle, u8 pubkey_len + pubkey,
+  // u16 tag_len + tag, big-endian. Every field is bounded against the blob before it is read.
+  const uint8_t *p = blob->span;
+  size_t n = blob->span_len;
+  size_t off = 0;
+  if (off + 2 > n) return SE_ERR_TRUNCATED;
+  size_t nkeys = ((size_t)p[off] << 8) | p[off + 1];
+  off += 2;
+  size_t produced = 0;
+  for (size_t i = 0; i < nkeys; i++) {
+    if (off + 1 > n) return SE_ERR_TRUNCATED;
+    size_t hlen = p[off++];
+    if (off + hlen > n) return SE_ERR_TRUNCATED;
+    const uint8_t *h = p + off;
+    off += hlen;
+    if (off + 1 > n) return SE_ERR_TRUNCATED;
+    size_t plen = p[off++];
+    if (off + plen > n) return SE_ERR_TRUNCATED;
+    const uint8_t *pk = p + off;
+    off += plen;
+    if (off + 2 > n) return SE_ERR_TRUNCATED;
+    size_t tlen = ((size_t)p[off] << 8) | p[off + 1];
+    off += 2;
+    if (off + tlen > n) return SE_ERR_TRUNCATED;
+    const uint8_t *tg = p + off;
+    off += tlen;
+    if (produced < max_entries) {
+      se_key_entry *e = &out_entries[produced];
+      if (hlen > sizeof(e->handle) || plen > sizeof(e->public_key) || tlen > sizeof(e->app_tag)) {
+        return SE_ERR_BUFFER;
+      }
+      memcpy(e->handle, h, hlen);
+      e->handle_len = hlen;
+      memcpy(e->public_key, pk, plen);
+      e->public_key_len = plen;
+      memcpy(e->app_tag, tg, tlen);
+      e->app_tag_len = tlen;
+      produced++;
+    }
+  }
+  if (off != n) return SE_ERR_MALFORMED; // trailing bytes in the blob
+  *out_count = produced;
+  return SE_OK;
+}
+
+se_status se_decode_attributes_response(const uint8_t *payload, size_t len, uint8_t *out_blob,
+                                        size_t cap, size_t *out_len) {
+  reader r = {payload, len, 0};
+  entry entries[8];
+  size_t count = 0;
+  se_status st = r_map(&r, entries, 8, &count);
+  if (st != SE_OK) return st;
+
+  const entry *status = find(entries, count, K_STATUS);
+  const entry *op = find(entries, count, K_OP);
+  if (!status || status->major != CBOR_UINT || !op || op->major != CBOR_UINT) return SE_ERR_MISSING;
+  if (status->uintval != ST_OK) return SE_ERR_STATUS; // an error rides se_decode_response
+  if (op->uintval != OP_COPY_ATTRIBUTES) return SE_ERR_OPCODE;
+
+  return copy_span(find(entries, count, K_ATTRIBUTES), out_blob, cap, out_len);
+}
+
+// (DECRYPT and KEY_EXCHANGE results decode through se_decode_response into se_response.result.)

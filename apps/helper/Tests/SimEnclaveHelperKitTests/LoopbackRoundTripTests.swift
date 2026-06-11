@@ -10,6 +10,9 @@ import SimEnclaveHostCore
 import SimEnclaveProtocol
 @testable import SimEnclaveHelperKit
 
+/// The SecKeyAlgorithm raw string these round trips sign under: digest-mode SHA-256.
+private let sha256DigestAlgorithm = SecKeyAlgorithm.ecdsaSignatureDigestX962SHA256.rawValue as String
+
 // Mechanism B, now authenticated. The protocol, the loopback transport, the
 // capability token, and the host SEP, proven together on one machine with no
 // simulator: present the token, generate, sign, verify, and reject a wrong token.
@@ -33,7 +36,8 @@ final class LoopbackRoundTripTests: XCTestCase {
         XCTAssertEqual(x963.first, 0x04)
 
         let digest = Data(SHA256.hash(data: Data("loopback mechanism B".utf8)))
-        let signResponse = try client.send(.sign(handle: handle, digest: digest), token: token)
+        let signResponse = try client.send(
+            .sign(handle: handle, algorithm: sha256DigestAlgorithm, input: digest), token: token)
         guard case let .signed(signature) = signResponse else {
             return XCTFail("expected a signed response")
         }
@@ -70,7 +74,8 @@ final class LoopbackRoundTripTests: XCTestCase {
 
         let client = LoopbackClient(port: listener.port)
         let response = try client.send(
-            .sign(handle: Data([9, 9, 9, 9]), digest: Data(repeating: 0, count: 32)), token: token)
+            .sign(handle: Data([9, 9, 9, 9]), algorithm: sha256DigestAlgorithm,
+                  input: Data(repeating: 0, count: 32)), token: token)
         guard case .failure = response else {
             return XCTFail("an unknown handle must come back as a failure response")
         }
@@ -155,7 +160,8 @@ final class LoopbackRoundTripTests: XCTestCase {
         // Connection A: sign the prompted key; it parks in the gate.
         DispatchQueue.global().async {
             _ = try? LoopbackClient(port: port).send(
-                .sign(handle: promptedHandle, digest: Data(repeating: 0x5A, count: 32)), token: token)
+                .sign(handle: promptedHandle, algorithm: sha256DigestAlgorithm,
+                      input: Data(repeating: 0x5A, count: 32)), token: token)
         }
         XCTAssertEqual(parked.wait(timeout: .now() + 5), .success, "the biometry sign should park in the gate")
 
@@ -165,7 +171,7 @@ final class LoopbackRoundTripTests: XCTestCase {
         else { return XCTFail("a silent generate must complete while a biometry sign is parked") }
         let digest = Data(SHA256.hash(data: Data("unblocked".utf8)))
         guard case let .signed(signature) = try LoopbackClient(port: port).send(
-            .sign(handle: silentHandle, digest: digest), token: token)
+            .sign(handle: silentHandle, algorithm: sha256DigestAlgorithm, input: digest), token: token)
         else { return XCTFail("a silent sign must complete while a biometry sign is parked") }
         XCTAssertTrue(verifies(digest: digest, signature: signature, x963: x963))
     }
@@ -194,7 +200,8 @@ final class LoopbackRoundTripTests: XCTestCase {
                 .generate(keyClass: .biometry, accessControl: ac), token: token)
             else { return XCTFail("expected a generated biometry key") }
             guard case let .failure(code, _, domain) = try client.send(
-                .sign(handle: handle, digest: Data(repeating: 0x5A, count: 32)), token: token)
+                .sign(handle: handle, algorithm: sha256DigestAlgorithm,
+                      input: Data(repeating: 0x5A, count: 32)), token: token)
             else { return XCTFail("a failed prompt must surface as a failure") }
             XCTAssertEqual(code, expectedCode, "device code for \(failure)")
             XCTAssertEqual(domain, expectedDomain, "device domain for \(failure)")
@@ -276,7 +283,7 @@ final class ParkingGate: BiometricGate, @unchecked Sendable {
         self.signature = signature
     }
 
-    func promptedSign(key _: SecKey, digest _: Data, reason _: String) throws -> Data {
+    func promptedSign(key _: SecKey, algorithm _: String, input _: Data, reason _: String) throws -> Data {
         parked.signal()
         release.wait()
         return signature
@@ -288,7 +295,7 @@ final class ParkingGate: BiometricGate, @unchecked Sendable {
 final class CategoryGate: BiometricGate, @unchecked Sendable {
     private let failure: BiometricFailure
     init(_ failure: BiometricFailure) { self.failure = failure }
-    func promptedSign(key _: SecKey, digest _: Data, reason _: String) throws -> Data {
+    func promptedSign(key _: SecKey, algorithm _: String, input _: Data, reason _: String) throws -> Data {
         throw failure
     }
 }

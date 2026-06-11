@@ -39,8 +39,8 @@ public protocol AppApprover {
 /// `evaluateAccessControl` pre-auth) is the spike the menubar gate resolves on real
 /// hardware; this seam is what the headless suite exercises through a mock.
 public protocol BiometricGate {
-    /// Foreground, prompt, and sign the 32-byte `digest` with the prompted `key`,
-    /// naming the caller in `reason`. Throws on a cancel or a failed prompt, which the
-    /// helper maps to the device's error (slice 5).
-    func promptedSign(key: SecKey, digest: Data, reason: String) throws -> Data
+    /// Foreground, prompt, and sign `input` with the prompted `key` under `algorithm`
+    /// (a `SecKeyAlgorithm` raw string), naming the caller in `reason`. Throws on a cancel
+    /// or a failed prompt, which the helper maps to the device's error (slice 5).
+    func promptedSign(key: SecKey, algorithm: String, input: Data, reason: String) throws -> Data
 }

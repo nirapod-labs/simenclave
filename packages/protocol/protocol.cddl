@@ -13,9 +13,11 @@
 start = request / response
 
 ; --- keys ---------------------------------------------------------------
-; 0 op  1 status  2 handle  3 publicKey  4 digest  5 signature  6 error
+; 0 op  1 status  2 handle  3 publicKey  4 input/digest  5 signature  6 error
 ; 7 token  8 version  9 keyClass  10 errorCode  11 accessFlags  12 protection
 ; 13 errorDomain  14 appID  15 udid  16 appTag
+; 17 entries  18 operation  19 algorithm  20 flag  21 attributes  22 ciphertext
+; 23 peerKey  24 result
 
 token = bstr .size 32          ; the per-session capability token
 key-class = 0 / 1              ; 0 silent, 1 biometry
@@ -55,8 +57,9 @@ get-pubkey-request = {
 sign-request = {
   0 => 4,                ; op = SIGN
   2 => bstr,             ; handle from a prior GENERATE
-  4 => bstr .size 32,    ; digest, a 32-byte SHA-256 value
+  4 => bstr,             ; input: a digest for digest-mode, the raw message for message-mode
   7 => token,
+  19 => tstr,            ; algorithm: a SecKeyAlgorithm raw string, relayed to the real key
 }
 
 delete-request = {

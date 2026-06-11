@@ -24,7 +24,6 @@
 #include "../registry/shadow_ref.h"
 #include "../transport/client.h"
 
-#include <CommonCrypto/CommonCrypto.h>
 #include <Security/Security.h>
 #include <string.h>
 
@@ -35,6 +34,10 @@ typedef CFDictionaryRef (*copy_attributes_fn)(SecKeyRef);
 typedef CFDataRef (*copy_external_representation_fn)(SecKeyRef, CFErrorRef *);
 typedef SecAccessControlRef (*ac_create_with_flags_fn)(CFAllocatorRef, CFTypeRef,
                                                        SecAccessControlCreateFlags, CFErrorRef *);
+typedef Boolean (*is_algorithm_supported_fn)(SecKeyRef, SecKeyOperationType, SecKeyAlgorithm);
+typedef CFDataRef (*create_decrypted_data_fn)(SecKeyRef, SecKeyAlgorithm, CFDataRef, CFErrorRef *);
+typedef CFDataRef (*copy_key_exchange_result_fn)(SecKeyRef, SecKeyAlgorithm, SecKeyRef,
+                                                 CFDictionaryRef, CFErrorRef *);
 
 static create_random_key_fn orig_create_random_key;
 static copy_public_key_fn orig_copy_public_key;
@@ -42,6 +45,9 @@ static create_signature_fn orig_create_signature;
 static copy_attributes_fn orig_copy_attributes;
 static copy_external_representation_fn orig_copy_external_representation;
 static ac_create_with_flags_fn orig_ac_create_with_flags;
+static is_algorithm_supported_fn orig_is_algorithm_supported;
+static create_decrypted_data_fn orig_create_decrypted_data;
+static copy_key_exchange_result_fn orig_copy_key_exchange_result;
 
 // The access-control flags that make a key require a prompt at sign time: any
 // biometric or user-presence constraint. A key carrying any of these is the biometry
@@ -196,6 +202,31 @@ static SecKeyRef hook_create_random_key(CFDictionaryRef parameters, CFErrorRef *
   char app_id[256];
   size_t app_id_len = current_app_id(app_id, sizeof(app_id));
 
+  // Relay the requested key type and size so the helper hands them to the real SecKeyCreateRandomKey
+  // and the SEP rejects a type or size it does not support, instead of this hook silently making a
+  // P-256 key. Both are required parameters of a real create, so an SE request carries them; an
+  // absent type relays as NULL and keeps the helper's P-256 default.
+  char key_type[32];
+  size_t key_type_len = 0;
+  uint64_t key_size = 0;
+  const void *kt = CFDictionaryGetValue(parameters, kSecAttrKeyType);
+  if (kt && CFGetTypeID(kt) == CFStringGetTypeID() &&
+      CFStringGetCString((CFStringRef)kt, key_type, sizeof(key_type), kCFStringEncodingUTF8)) {
+    key_type_len = strlen(key_type);
+  }
+  const void *ks = CFDictionaryGetValue(parameters, kSecAttrKeySizeInBits);
+  if (ks && CFGetTypeID(ks) == CFNumberGetTypeID()) {
+    CFNumberGetValue((CFNumberRef)ks, kCFNumberSInt64Type, &key_size);
+  }
+  const uint8_t *key_type_ptr = key_type_len > 0 ? (const uint8_t *)key_type : NULL;
+
+  // A permanent key carries an application tag; relay it with the simulator UDID so the
+  // helper keeps the key findable on a later relaunch, the way a device retrieves a
+  // keychain-stored key. Borrowed from parameters; reused below for the local registry.
+  CFDataRef tag = extract_permanent_tag(parameters);
+  const char *udid = getenv("SIMULATOR_UDID");
+  int persist = tag && udid && udid[0] != '\0';
+
   se_response response;
   se_status st;
   SecAccessControlRef ac = extract_access_control(parameters);
@@ -208,11 +239,20 @@ static SecKeyRef hook_create_random_key(CFDictionaryRef parameters, CFErrorRef *
       prot_len = strlen(prot);
     }
     int biometry = (flags & SE_PROMPT_FLAGS) != 0;
-    st = se_client_generate_ac(biometry, (uint64_t)flags, (const uint8_t *)prot, prot_len,
-                               (const uint8_t *)app_id, app_id_len, &response);
+    if (persist) {
+      st = se_client_generate_persistent(
+          biometry, (uint64_t)flags, (const uint8_t *)prot, prot_len, (const uint8_t *)app_id,
+          app_id_len, (const uint8_t *)udid, strlen(udid), CFDataGetBytePtr(tag),
+          (size_t)CFDataGetLength(tag), key_type_ptr, key_type_len, key_size, &response);
+    } else {
+      st = se_client_generate_ac(biometry, (uint64_t)flags, (const uint8_t *)prot, prot_len,
+                                 (const uint8_t *)app_id, app_id_len, key_type_ptr, key_type_len,
+                                 key_size, &response);
+    }
     if (protection) CFRelease(protection); // se_ac_lookup returned it +1
   } else {
-    st = se_client_generate((const uint8_t *)app_id, app_id_len, &response);
+    st = se_client_generate((const uint8_t *)app_id, app_id_len, key_type_ptr, key_type_len,
+                            key_size, &response);
   }
   if (st != SE_OK || response.kind != SE_RESP_GENERATED) {
     // An SE create yields a host-backed key or fails; it never falls through to a
@@ -233,7 +273,7 @@ static SecKeyRef hook_create_random_key(CFDictionaryRef parameters, CFErrorRef *
     return NULL;
   }
 
-  CFDataRef tag = extract_permanent_tag(parameters); // borrowed; the registry retains it
+  // The same borrowed tag, now retained by the registry for in-process find-by-tag.
   se_registry_add(shadow, response.handle, response.handle_len, host_public, tag);
   CFRelease(host_public); // the registry holds its own reference
   g_stats.create_random_key++;
@@ -252,29 +292,36 @@ static SecKeyRef hook_copy_public_key(SecKeyRef key) {
   return orig_copy_public_key(key);
 }
 
-// The signing algorithms M2 maps: the X9.62 (DER) SHA-256 pair. Digest forwards
-// the caller's 32 bytes after a length check; message hashes first. Every other
-// algorithm, including the RFC4754 raw-encoding variants the wire cannot carry, is
-// refused, because guessing a hash or an encoding forges over the wrong bytes.
-static int reduce_to_digest(SecKeyAlgorithm algorithm, CFDataRef dataToSign, uint8_t *out,
-                            size_t *out_len) {
-  if (!dataToSign) return -1;
-  if (CFEqual(algorithm, kSecKeyAlgorithmECDSASignatureDigestX962SHA256)) {
-    if (CFDataGetLength(dataToSign) != CC_SHA256_DIGEST_LENGTH) return -1;
-    memcpy(out, CFDataGetBytePtr(dataToSign), CC_SHA256_DIGEST_LENGTH);
-    *out_len = CC_SHA256_DIGEST_LENGTH;
-    return 0;
+// SecKeyIsAlgorithmSupported on a shadow must answer for the real private SE key, not the
+// public carrier (which would report verify=yes, sign=no, the exact inverse, a one-call tell).
+// For a registered shadow the question is relayed to the helper, which asks the real key. For
+// any other key, and on a helper miss, it passes through to the original, the pre-hook behavior.
+static Boolean hook_is_algorithm_supported(SecKeyRef key, SecKeyOperationType operation,
+                                           SecKeyAlgorithm algorithm) {
+  if (!orig_is_algorithm_supported) return false; // install-window guard
+  uint8_t handle[64];
+  size_t handle_len = 0;
+  if (!se_registry_lookup(key, handle, sizeof(handle), &handle_len, NULL)) {
+    return orig_is_algorithm_supported(key, operation, algorithm);
   }
-  if (CFEqual(algorithm, kSecKeyAlgorithmECDSASignatureMessageX962SHA256)) {
-    // CC_LONG is 32-bit; a >4 GiB message would hash truncated bytes. Refuse it.
-    if (CFDataGetLength(dataToSign) > (CFIndex)UINT32_MAX) return -1;
-    CC_SHA256(CFDataGetBytePtr(dataToSign), (CC_LONG)CFDataGetLength(dataToSign), out);
-    *out_len = CC_SHA256_DIGEST_LENGTH;
-    return 0;
+  char algo[160];
+  if (!algorithm || !CFStringGetCString(algorithm, algo, sizeof(algo), kCFStringEncodingUTF8)) {
+    return orig_is_algorithm_supported(key, operation, algorithm);
   }
-  return -1;
+  se_response response;
+  se_status st = se_client_is_algorithm_supported(handle, handle_len, (uint64_t)operation,
+                                                  (const uint8_t *)algo, strlen(algo), &response);
+  if (st == SE_OK && response.kind == SE_RESP_SUPPORTED) {
+    return response.supported ? true : false;
+  }
+  return orig_is_algorithm_supported(key, operation, algorithm);
 }
 
+// Sign by relaying the exact SecKeyAlgorithm and input bytes to the helper, which hands them to
+// the real key. Nothing is reduced, hashed, or guessed here: a digest-mode algorithm carries the
+// caller's digest, a message-mode one the raw message, and the real SecKeyCreateSignature does
+// the hashing and the curve operation. So every algorithm the SEP supports works, and an
+// unsupported one returns the SEP's own refusal rather than a stand-in's allowlist.
 static CFDataRef hook_create_signature(SecKeyRef key, SecKeyAlgorithm algorithm,
                                        CFDataRef dataToSign, CFErrorRef *error) {
   if (!orig_create_signature) { // install-window guard, fail closed with an error
@@ -287,15 +334,17 @@ static CFDataRef hook_create_signature(SecKeyRef key, SecKeyAlgorithm algorithm,
     return orig_create_signature(key, algorithm, dataToSign, error);
   }
 
-  uint8_t digest[CC_SHA256_DIGEST_LENGTH];
-  size_t digest_len = 0;
-  if (reduce_to_digest(algorithm, dataToSign, digest, &digest_len) != 0) {
-    set_error(error, errSecParam); // unsupported algorithm or wrong digest length
+  char algo[160];
+  if (!algorithm || !CFStringGetCString(algorithm, algo, sizeof(algo), kCFStringEncodingUTF8) ||
+      !dataToSign) {
+    set_error(error, errSecParam);
     return NULL;
   }
 
   se_response response;
-  se_status st = se_client_sign(handle, handle_len, digest, digest_len, &response);
+  se_status st = se_client_sign(handle, handle_len, (const uint8_t *)algo, strlen(algo),
+                                CFDataGetBytePtr(dataToSign), (size_t)CFDataGetLength(dataToSign),
+                                &response);
   if (st != SE_OK) {
     set_error(error, errSecNotAvailable); // could not reach the helper
     return NULL;
@@ -321,9 +370,9 @@ static CFDataRef hook_create_signature(SecKeyRef key, SecKeyAlgorithm algorithm,
 // synthesizes the attributes a real SE private key returns; anything else passes through.
 // The core attributes (token, class, type, size) are knowable and asserted; the
 // exhaustive dictionary is device-reference work to be captured before M4.
-static CFDictionaryRef hook_copy_attributes(SecKeyRef key) {
-  if (!orig_copy_attributes) return NULL; // install-window guard
-  if (!se_registry_is_shadow(key)) return orig_copy_attributes(key);
+// The minimal private-key attribute dictionary, used only when the helper is unreachable, so a
+// shadow never falls back to the public carrier's (wrong-class) attributes.
+static CFDictionaryRef copy_attributes_stub(void) {
   int bits = 256;
   CFNumberRef bitsRef = CFNumberCreate(NULL, kCFNumberIntType, &bits);
   const void *keys[] = {kSecAttrKeyType, kSecAttrKeyClass, kSecAttrKeySizeInBits, kSecAttrTokenID};
@@ -332,7 +381,38 @@ static CFDictionaryRef hook_copy_attributes(SecKeyRef key) {
   CFDictionaryRef attrs = CFDictionaryCreate(NULL, keys, values, 4, &kCFTypeDictionaryKeyCallBacks,
                                              &kCFTypeDictionaryValueCallBacks);
   if (bitsRef) CFRelease(bitsRef);
-  return attrs; // +1 to the caller, as a Copy function returns
+  return attrs;
+}
+
+static CFDictionaryRef hook_copy_attributes(SecKeyRef key) {
+  if (!orig_copy_attributes) return NULL; // install-window guard
+  if (!se_registry_is_shadow(key)) return orig_copy_attributes(key);
+
+  // A registered shadow: return the real SEP key's own attribute dictionary, fetched from the
+  // helper as a serialized property list, so the application label, the capability flags, and
+  // the sizes are the real key's, not a stub or the public carrier's.
+  uint8_t handle[64];
+  size_t handle_len = 0;
+  if (se_registry_lookup(key, handle, sizeof(handle), &handle_len, NULL)) {
+    uint8_t blob[4096];
+    size_t blob_len = 0;
+    if (se_client_copy_attributes(handle, handle_len, blob, sizeof(blob), &blob_len) == SE_OK &&
+        blob_len > 0) {
+      CFDataRef data = CFDataCreate(NULL, blob, (CFIndex)blob_len);
+      if (data) {
+        CFPropertyListRef plist =
+            CFPropertyListCreateWithData(NULL, data, kCFPropertyListImmutable, NULL, NULL);
+        CFRelease(data);
+        if (plist) {
+          if (CFGetTypeID(plist) == CFDictionaryGetTypeID()) {
+            return (CFDictionaryRef)plist; // +1 to the caller, as a Copy function returns
+          }
+          CFRelease(plist);
+        }
+      }
+    }
+  }
+  return copy_attributes_stub(); // helper unreachable
 }
 
 // A device's SE private key is not exportable: SecKeyCopyExternalRepresentation returns
@@ -356,10 +436,12 @@ static CFDataRef hook_copy_external_representation(SecKeyRef key, CFErrorRef *er
 typedef OSStatus (*item_add_fn)(CFDictionaryRef, CFTypeRef *);
 typedef OSStatus (*item_copy_matching_fn)(CFDictionaryRef, CFTypeRef *);
 typedef OSStatus (*item_delete_fn)(CFDictionaryRef);
+typedef OSStatus (*item_update_fn)(CFDictionaryRef, CFDictionaryRef);
 
 static item_add_fn orig_item_add;
 static item_copy_matching_fn orig_item_copy_matching;
 static item_delete_fn orig_item_delete;
+static item_update_fn orig_item_update;
 
 // A query naming one of our keys: class key, returning a ref, at most one match,
 // with an application tag. Anything else is out of M2's scope and passes through,
@@ -409,8 +491,73 @@ static OSStatus hook_item_add(CFDictionaryRef attributes, CFTypeRef *result) {
   return orig_item_add(attributes, result);
 }
 
+// An enumeration query: every key item, kSecMatchLimitAll. This is how an app lists the
+// keys it has, reading the keychain natively instead of remembering its own tags.
+static int is_se_key_list_query(CFDictionaryRef query) {
+  if (!query) return 0;
+  const void *cls = CFDictionaryGetValue(query, kSecClass);
+  if (!cls || !CFEqual(cls, kSecClassKey)) return 0;
+  const void *limit = CFDictionaryGetValue(query, kSecMatchLimit);
+  return limit != NULL && CFEqual(limit, kSecMatchLimitAll);
+}
+
+// Enumerate the simulator's keys from the helper and build the CFArray of attribute dicts a
+// real device returns for a kSecMatchLimitAll key query. Each dict carries the shadow ref and
+// the application tag, and each shadow is registered so a later sign on it routes to the SEP.
+// An empty enumeration is errSecItemNotFound, exactly as a device returns when nothing matches.
+static OSStatus list_se_keys(CFTypeRef *result) {
+  const char *udid = getenv("SIMULATOR_UDID");
+  if (!udid || udid[0] == '\0') return errSecItemNotFound;
+
+  se_key_entry entries[64];
+  size_t n = 0;
+  if (se_client_list((const uint8_t *)udid, strlen(udid), entries, 64, &n) != SE_OK) {
+    return errSecItemNotFound;
+  }
+
+  CFMutableArrayRef array = CFArrayCreateMutable(NULL, (CFIndex)n, &kCFTypeArrayCallBacks);
+  if (!array) return errSecItemNotFound;
+  for (size_t i = 0; i < n; i++) {
+    SecKeyRef shadow = make_public_key(entries[i].public_key, entries[i].public_key_len);
+    SecKeyRef host_public = make_public_key(entries[i].public_key, entries[i].public_key_len);
+    if (!shadow || !host_public || !carrier_cannot_sign(shadow)) {
+      if (shadow) CFRelease(shadow);
+      if (host_public) CFRelease(host_public);
+      continue;
+    }
+    CFDataRef tag = CFDataCreate(NULL, entries[i].app_tag, (CFIndex)entries[i].app_tag_len);
+    se_registry_add(shadow, entries[i].handle, entries[i].handle_len, host_public, tag);
+    CFRelease(host_public); // the registry holds its own reference
+
+    CFMutableDictionaryRef dict = CFDictionaryCreateMutable(
+        NULL, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    if (dict) {
+      CFDictionarySetValue(dict, kSecValueRef, shadow);
+      if (tag) CFDictionarySetValue(dict, kSecAttrApplicationTag, tag);
+      CFArrayAppendValue(array, dict); // the array retains the dict
+      CFRelease(dict);
+    }
+    if (tag) CFRelease(tag);
+    CFRelease(shadow); // the array (via the dict) and the registry hold their own references
+  }
+
+  if (CFArrayGetCount(array) == 0) {
+    CFRelease(array);
+    return errSecItemNotFound;
+  }
+  if (result) {
+    *result = array; // +1 to the caller
+  } else {
+    CFRelease(array);
+  }
+  return errSecSuccess;
+}
+
 static OSStatus hook_item_copy_matching(CFDictionaryRef query, CFTypeRef *result) {
   if (!orig_item_copy_matching) return errSecNotAvailable; // install-window guard
+  if (is_se_key_list_query(query)) {
+    return list_se_keys(result);
+  }
   if (is_se_key_ref_query(query)) {
     CFDataRef tag = (CFDataRef)CFDictionaryGetValue(query, kSecAttrApplicationTag);
     SecKeyRef shadow = NULL;
@@ -423,6 +570,33 @@ static OSStatus hook_item_copy_matching(CFDictionaryRef query, CFTypeRef *result
         CFRelease(shadow);
       }
       return errSecSuccess;
+    }
+    // Local miss: the app relaunched and the in-process registry is fresh. Ask the helper,
+    // which keeps permanent keys findable by tag for its lifetime, and rebuild the shadow so
+    // the reloaded key signs through the same path a created key does. A helper miss falls
+    // through to the original, so a tag that is not ours behaves exactly as before.
+    const char *udid = getenv("SIMULATOR_UDID");
+    if (udid && udid[0] != '\0') {
+      se_response response;
+      se_status st = se_client_find_by_tag((const uint8_t *)udid, strlen(udid),
+                                           CFDataGetBytePtr(tag), (size_t)CFDataGetLength(tag),
+                                           &response);
+      if (st == SE_OK && response.kind == SE_RESP_FOUND) {
+        SecKeyRef rebuilt = make_public_key(response.public_key, response.public_key_len);
+        SecKeyRef host_public = make_public_key(response.public_key, response.public_key_len);
+        if (rebuilt && host_public && carrier_cannot_sign(rebuilt)) {
+          se_registry_add(rebuilt, response.handle, response.handle_len, host_public, tag);
+          CFRelease(host_public); // the registry holds its own reference
+          if (result) {
+            *result = rebuilt; // +1 to the caller; the registry holds a second reference
+          } else {
+            CFRelease(rebuilt);
+          }
+          return errSecSuccess;
+        }
+        if (rebuilt) CFRelease(rebuilt);
+        if (host_public) CFRelease(host_public);
+      }
     }
   }
   return orig_item_copy_matching(query, result); // saved original, never the symbol
@@ -452,6 +626,132 @@ static OSStatus hook_item_delete(CFDictionaryRef query) {
   return orig_item_delete(query); // saved original, never the symbol
 }
 
+// SecItemUpdate on a query naming one of our keys: a new application tag re-tags the key. The
+// helper re-registers it under the new (udid, tag) so a relaunch finds it by the new tag, and the
+// local registry follows so a same-session find-by-tag does too. The shape matches a delete query
+// (class key with a tag). Anything else, and a tag the registry does not hold, passes through.
+static OSStatus hook_item_update(CFDictionaryRef query, CFDictionaryRef attributesToUpdate) {
+  if (!orig_item_update) return errSecNotAvailable; // install-window guard
+  if (is_se_key_delete(query)) {
+    CFDataRef oldTag = (CFDataRef)CFDictionaryGetValue(query, kSecAttrApplicationTag);
+    SecKeyRef shadow = NULL;
+    uint8_t handle[64];
+    size_t handle_len = 0;
+    if (se_registry_find_by_tag(oldTag, &shadow, handle, sizeof(handle), &handle_len)) {
+      const void *newTag =
+          attributesToUpdate ? CFDictionaryGetValue(attributesToUpdate, kSecAttrApplicationTag)
+                             : NULL;
+      OSStatus rc = errSecSuccess;
+      if (newTag && CFGetTypeID(newTag) == CFDataGetTypeID()) {
+        const char *udid = getenv("SIMULATOR_UDID");
+        if (udid && udid[0] != '\0') {
+          se_response response;
+          se_status st = se_client_update(handle, handle_len, (const uint8_t *)udid, strlen(udid),
+                                          CFDataGetBytePtr((CFDataRef)newTag),
+                                          (size_t)CFDataGetLength((CFDataRef)newTag), &response);
+          if (st != SE_OK) {
+            rc = errSecNotAvailable;
+          } else if (response.kind != SE_RESP_UPDATED) {
+            rc = (response.kind == SE_RESP_ERROR && response.error_code != 0)
+                     ? response.error_code
+                     : errSecInternalComponent;
+          }
+        }
+        if (rc == errSecSuccess) se_registry_set_tag(shadow, (CFDataRef)newTag);
+      }
+      CFRelease(shadow); // find_by_tag retained it
+      return rc;
+    }
+  }
+  return orig_item_update(query, attributesToUpdate); // saved original, never the symbol
+}
+
+// ECIES decrypt on a shadow: the real SEP key decrypts. The public carrier cannot, so an
+// unhooked call would fail; here the ciphertext is relayed and the real plaintext returned.
+static CFDataRef hook_create_decrypted_data(SecKeyRef key, SecKeyAlgorithm algorithm,
+                                            CFDataRef ciphertext, CFErrorRef *error) {
+  if (!orig_create_decrypted_data) { // install-window guard
+    set_error(error, errSecNotAvailable);
+    return NULL;
+  }
+  uint8_t handle[64];
+  size_t handle_len = 0;
+  if (!se_registry_lookup(key, handle, sizeof(handle), &handle_len, NULL)) {
+    return orig_create_decrypted_data(key, algorithm, ciphertext, error);
+  }
+  char algo[160];
+  if (!algorithm || !ciphertext ||
+      !CFStringGetCString(algorithm, algo, sizeof(algo), kCFStringEncodingUTF8)) {
+    set_error(error, errSecParam);
+    return NULL;
+  }
+  se_response response;
+  se_status st = se_client_decrypt(handle, handle_len, (const uint8_t *)algo, strlen(algo),
+                                   CFDataGetBytePtr(ciphertext), (size_t)CFDataGetLength(ciphertext),
+                                   &response);
+  if (st == SE_OK && response.kind == SE_RESP_RESULT) {
+    return CFDataCreate(NULL, response.result, (CFIndex)response.result_len);
+  }
+  OSStatus code = (st == SE_OK && response.kind == SE_RESP_ERROR && response.error_code != 0)
+                      ? response.error_code
+                      : errSecDecode;
+  set_error(error, code);
+  return NULL;
+}
+
+// ECDH key agreement on a shadow: the real SEP key derives the shared secret. The peer public key
+// is relayed as its X9.63 bytes, and the caller's exchange parameters are serialized whole and
+// relayed too, so a KDF variant's requested size and shared info reach the real key. The dict is
+// transported, not interpreted: whatever the app passed is what the real call receives.
+static CFDataRef hook_copy_key_exchange_result(SecKeyRef key, SecKeyAlgorithm algorithm,
+                                               SecKeyRef publicKey, CFDictionaryRef parameters,
+                                               CFErrorRef *error) {
+  if (!orig_copy_key_exchange_result) { // install-window guard
+    set_error(error, errSecNotAvailable);
+    return NULL;
+  }
+  uint8_t handle[64];
+  size_t handle_len = 0;
+  if (!se_registry_lookup(key, handle, sizeof(handle), &handle_len, NULL)) {
+    return orig_copy_key_exchange_result(key, algorithm, publicKey, parameters, error);
+  }
+  char algo[160];
+  CFDataRef peer = publicKey ? SecKeyCopyExternalRepresentation(publicKey, NULL) : NULL;
+  if (!algorithm || !peer ||
+      !CFStringGetCString(algorithm, algo, sizeof(algo), kCFStringEncodingUTF8)) {
+    if (peer) CFRelease(peer);
+    set_error(error, errSecParam);
+    return NULL;
+  }
+  // Serialize the caller's parameters to a binary plist; an empty or unserializable dict relays as
+  // no parameters, which is a raw agreement (the no-KDF variants ignore parameters anyway).
+  const uint8_t *params_ptr = NULL;
+  size_t params_len = 0;
+  CFDataRef params_data = NULL;
+  if (parameters && CFDictionaryGetCount(parameters) > 0) {
+    params_data = CFPropertyListCreateData(NULL, parameters, kCFPropertyListBinaryFormat_v1_0, 0,
+                                           NULL);
+    if (params_data) {
+      params_ptr = CFDataGetBytePtr(params_data);
+      params_len = (size_t)CFDataGetLength(params_data);
+    }
+  }
+  se_response response;
+  se_status st = se_client_key_exchange(handle, handle_len, (const uint8_t *)algo, strlen(algo),
+                                        CFDataGetBytePtr(peer), (size_t)CFDataGetLength(peer),
+                                        params_ptr, params_len, &response);
+  CFRelease(peer);
+  if (params_data) CFRelease(params_data);
+  if (st == SE_OK && response.kind == SE_RESP_RESULT) {
+    return CFDataCreate(NULL, response.result, (CFIndex)response.result_len);
+  }
+  OSStatus code = (st == SE_OK && response.kind == SE_RESP_ERROR && response.error_code != 0)
+                      ? response.error_code
+                      : errSecParam;
+  set_error(error, code);
+  return NULL;
+}
+
 int simenclave_install_hooks(void) {
   const se_hook_backend *backend = se_default_backend();
   struct {
@@ -465,11 +765,18 @@ int simenclave_install_hooks(void) {
       {"SecKeyCopyAttributes", (void *)hook_copy_attributes, (void **)&orig_copy_attributes},
       {"SecKeyCopyExternalRepresentation", (void *)hook_copy_external_representation,
        (void **)&orig_copy_external_representation},
+      {"SecKeyIsAlgorithmSupported", (void *)hook_is_algorithm_supported,
+       (void **)&orig_is_algorithm_supported},
+      {"SecKeyCreateDecryptedData", (void *)hook_create_decrypted_data,
+       (void **)&orig_create_decrypted_data},
+      {"SecKeyCopyKeyExchangeResult", (void *)hook_copy_key_exchange_result,
+       (void **)&orig_copy_key_exchange_result},
       {"SecAccessControlCreateWithFlags", (void *)hook_ac_create_with_flags,
        (void **)&orig_ac_create_with_flags},
       {"SecItemAdd", (void *)hook_item_add, (void **)&orig_item_add},
       {"SecItemCopyMatching", (void *)hook_item_copy_matching, (void **)&orig_item_copy_matching},
       {"SecItemDelete", (void *)hook_item_delete, (void **)&orig_item_delete},
+      {"SecItemUpdate", (void *)hook_item_update, (void **)&orig_item_update},
   };
   int failures = 0;
   for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {

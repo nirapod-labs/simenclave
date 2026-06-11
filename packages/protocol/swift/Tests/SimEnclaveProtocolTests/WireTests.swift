@@ -54,9 +54,53 @@ final class WireTests: XCTestCase {
 
     func testSignRequestRoundTrips() throws {
         let handle = Data((0 ..< 16).map { UInt8($0) })
-        let digest = Data(repeating: 0x5A, count: 32)
+        let input = Data(repeating: 0x5A, count: 32)
+        // The SecKeyAlgorithm raw string crosses the wire as opaque text; the helper hands it
+        // to the real key. The codec keeps it portable, so the constant is spelled out here.
+        let algorithm = "algid:sign:ECDSA:digest-X962:SHA-256"
         let token = Data(repeating: 0xCD, count: 32)
-        let request = Request.sign(handle: handle, digest: digest)
+        let request = Request.sign(handle: handle, algorithm: algorithm, input: input)
+        let payload = Wire.encode(request, token: token)
+        XCTAssertEqual(try Wire.decodeRequest(payload), request)
+        XCTAssertEqual(try Wire.token(in: payload), token)
+    }
+
+    func testUpdateTagRequestRoundTrips() throws {
+        let token = Data(repeating: 0xAB, count: 32)
+        let request = Request.updateTag(handle: Data(repeating: 0x11, count: 16),
+                                        appTag: Data("new.tag".utf8), udid: "UDID-1")
+        let payload = Wire.encode(request, token: token)
+        XCTAssertEqual(try Wire.decodeRequest(payload), request)
+        XCTAssertEqual(try Wire.token(in: payload), token)
+    }
+
+    func testUpdatedResponseRoundTrips() throws {
+        XCTAssertEqual(try Wire.decodeResponse(Wire.encode(.updated)), .updated)
+    }
+
+    func testGenerateWithKeyTypeRoundTrips() throws {
+        let token = Data(repeating: 0xAB, count: 32)
+        // A non-default type/size request: the keys 26/27 ride the generate and round-trip.
+        let request = Request.generate(keyClass: .silent, accessControl: nil, persistent: nil,
+                                       keyType: "42", keySizeInBits: 2048)
+        XCTAssertEqual(try Wire.decodeRequest(Wire.encode(request, token: token)), request)
+        // A plain generate still omits keys 26/27, keeping the pre-existing bytes.
+        let plain = try Wire.decodeRequest(Wire.encode(.generate(keyClass: .silent), token: token))
+        guard case let .generate(_, _, _, keyType, keySize) = plain else {
+            return XCTFail("expected a generate request")
+        }
+        XCTAssertNil(keyType)
+        XCTAssertNil(keySize)
+    }
+
+    func testKeyExchangeRequestRoundTrips() throws {
+        let handle = Data(repeating: 0x22, count: 16)
+        let peer = Data([0x04] + (0 ..< 64).map { UInt8($0) })
+        let parameters = Data([0x01, 0x02, 0x03]) // an opaque serialized params blob
+        let token = Data(repeating: 0xCD, count: 32)
+        let request = Request.keyExchange(handle: handle,
+                                          algorithm: "algid:kdf:ECDH:X963:SHA-256",
+                                          peerPublicKey: peer, parameters: parameters)
         let payload = Wire.encode(request, token: token)
         XCTAssertEqual(try Wire.decodeRequest(payload), request)
         XCTAssertEqual(try Wire.token(in: payload), token)
@@ -131,9 +175,9 @@ final class WireTests: XCTestCase {
     }
 
     func testUnknownOpcodeRejected() {
-        // A map { 0: 9 } with op = 9.
-        XCTAssertThrowsError(try Wire.decodeRequest(Data([0xA1, 0x00, 0x09]))) { error in
-            XCTAssertEqual(error as? ProtocolError, .badOpcode(9))
+        // A map { 0: 100 } with op = 100, above every defined op.
+        XCTAssertThrowsError(try Wire.decodeRequest(Data([0xA1, 0x00, 0x18, 0x64]))) { error in
+            XCTAssertEqual(error as? ProtocolError, .badOpcode(100))
         }
     }
 
