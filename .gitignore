@@ -27,3 +27,4 @@ dist/notarization/
 .env
 *.local
 *.log
+dist/

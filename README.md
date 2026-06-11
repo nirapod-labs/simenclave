@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/github/github-banner-dark.png">
+    <img alt="SimEnclave" src="assets/github/github-banner-light.png" width="640">
+  </picture>
+</p>
+
 # SimEnclave
 
 SimEnclave gives the iOS Simulator a real Secure Enclave. It injects a small interposer into a simulated app, catches the `SecKey` calls, and routes the Secure Enclave ones to your Mac's actual SEP over a local channel. The app signs with real hardware P-256. No mock, no software key, and the app itself imports nothing.
@@ -9,6 +16,10 @@ It exists because the iOS Simulator has no Secure Enclave. That means the one th
 ## How it works, in one paragraph
 
 Your Mac has a real Secure Enclave. A menubar helper owns a P-256 key inside it. When a simulated app calls `SecKeyCreateSignature`, an injected interposer, loaded only through a debug scheme environment variable, sends the digest to the helper over an authenticated loopback socket. The helper signs in the Mac's SEP and the signature comes back. The private key never leaves the chip. The only things that cross the wire are a handle, a public key, a digest, and a signature, which is exactly what an app on a real device already handles.
+
+<p align="center">
+  <img alt="The SimEnclave helper in the menu bar" src="assets/menubar/preview-in-menubar.png" width="540">
+</p>
 
 ## Scope
 
