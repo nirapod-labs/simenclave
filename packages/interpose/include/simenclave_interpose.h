@@ -9,12 +9,12 @@
  * stays inert otherwise. The stats exist so a host harness can confirm the
  * hooks fired rather than inferring it from behavior.
  *
- * @author SimEnclave Contributors
+ * @author Nirapod Labs
  * @date 2026
  *
  * @copyright
  * SPDX-License-Identifier: Apache-2.0
- * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ * SPDX-FileCopyrightText: 2026 Nirapod Labs
  */
 #ifndef SIMENCLAVE_INTERPOSE_H
 #define SIMENCLAVE_INTERPOSE_H

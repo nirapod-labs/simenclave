@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+// SPDX-FileCopyrightText: 2026 Nirapod Labs
 
 // The helper as a menubar app. It runs the same loopback signing service as the CLI
 // (SimEnclaveHelperKit) behind a SwiftUI MenuBarExtra: an on/off toggle, the bound port and

@@ -9,12 +9,12 @@
  * transport. The seam exists because no single hooking library is allowed to
  * be load-bearing for the project.
  *
- * @author SimEnclave Contributors
+ * @author Nirapod Labs
  * @date 2026
  *
  * @copyright
  * SPDX-License-Identifier: Apache-2.0
- * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ * SPDX-FileCopyrightText: 2026 Nirapod Labs
  */
 #ifndef SE_HOOK_BACKEND_H
 #define SE_HOOK_BACKEND_H

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+// SPDX-FileCopyrightText: 2026 Nirapod Labs
 
 import { Host, Image as SymbolImage } from "@expo/ui/swift-ui";
 import { Image, useColorScheme } from "react-native";

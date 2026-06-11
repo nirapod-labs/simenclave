@@ -7,12 +7,12 @@
  * @see se_protocol.h for the API documentation, and SPEC.md for the frame format.
  *
 
- * @author SimEnclave Contributors
+ * @author Nirapod Labs
  * @date 2026
  *
  * @copyright
  * SPDX-License-Identifier: Apache-2.0
- * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ * SPDX-FileCopyrightText: 2026 Nirapod Labs
  */
 #include "se_protocol.h"
 

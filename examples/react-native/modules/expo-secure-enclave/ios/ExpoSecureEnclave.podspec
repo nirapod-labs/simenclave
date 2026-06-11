@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+# SPDX-FileCopyrightText: 2026 Nirapod Labs
 
 Pod::Spec.new do |s|
   s.name           = 'ExpoSecureEnclave'
@@ -8,7 +8,7 @@ Pod::Spec.new do |s|
   s.description    = 'Issues the raw Security-framework calls (SecKeyCreateRandomKey with the ' \
                      'Secure Enclave token, SecKeyCreateSignature, SecItem*) a device app makes, ' \
                      'so SimEnclave hooks them in the Simulator.'
-  s.author         = 'SimEnclave Contributors'
+  s.author         = 'Nirapod Labs'
   s.homepage       = 'https://github.com/0xnirapod/simenclave'
   s.license        = { :type => 'Apache-2.0' }
   s.platforms      = { :ios => '15.1', :tvos => '15.1' }

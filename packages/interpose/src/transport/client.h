@@ -12,12 +12,12 @@
  * surface as ::SE_ERR_TRUNCATED, an oversized frame as ::SE_ERR_BUFFER, and a
  * bad length prefix as ::SE_ERR_MALFORMED.
  *
- * @author SimEnclave Contributors
+ * @author Nirapod Labs
  * @date 2026
  *
  * @copyright
  * SPDX-License-Identifier: Apache-2.0
- * SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+ * SPDX-FileCopyrightText: 2026 Nirapod Labs
  */
 #ifndef SE_CLIENT_H
 #define SE_CLIENT_H

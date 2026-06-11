@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: 2026 SimEnclave Contributors
+// SPDX-FileCopyrightText: 2026 Nirapod Labs
 
 import * as Haptics from "expo-haptics";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
