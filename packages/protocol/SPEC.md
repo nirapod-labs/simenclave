@@ -116,16 +116,18 @@ without signing anything:
 { 0: 3, 2: <handle>, 7: <token> }
 ```
 
-`SIGN` asks the helper to sign a digest with the key behind a handle:
+`SIGN` asks the helper to sign with the key behind a handle, under a named algorithm:
 
 ```
-{ 0: 4, 2: <handle>, 4: <digest>, 7: <token> }
+{ 0: 4, 2: <handle>, 4: <input>, 7: <token>, 19: <algorithm> }
 ```
 
-`digest` is a 32-byte SHA-256 value. M1, like M0, signs in digest form, which is
-what `SecKeyCreateSignature` does for the `ecdsaSignatureDigestX962SHA256`
-algorithm. The interposer reduces a message-algorithm input to this digest
-before sending, so the helper's job is always a pure digest sign.
+`algorithm` is a `SecKeyAlgorithm` raw string. `input` is a digest for a
+digest-mode algorithm or the raw message for a message-mode one. The helper hands
+both straight to `SecKeyCreateSignature` on the real key, so every algorithm the
+Secure Enclave supports works and an unsupported one returns the SEP's own error.
+The interposer relays the algorithm and the bytes unchanged: it reduces nothing
+and chooses no hash, so the algorithm the app asked for is the one that signs.
 
 `DELETE` removes the key behind a handle from the SEP and the helper's store:
 

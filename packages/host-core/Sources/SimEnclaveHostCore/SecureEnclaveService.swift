@@ -45,8 +45,18 @@ public final class SecureEnclaveService: @unchecked Sendable {
         let requiresPrompt: Bool
     }
 
+    /// A permanent key's handle and the tag it is stored under, keyed by the (udid, tag)
+    /// namespace. The tag is kept so an enumeration can report it without reversing the key.
+    private struct TagRecord { let handle: Data; let appTag: Data }
+
     private let lock = NSLock()
     private var keys: [Data: StoredKey] = [:]
+    // A permanent key's (udid, tag) namespace -> record, so a relaunched app finds the key
+    // again by tag the way a device retrieves a keychain-stored key, and can enumerate every
+    // key for the simulator. Helper-lifetime: it survives an app relaunch while the helper
+    // runs. Durable across helper restarts and Mac reboot (a write into the Mac keychain) is
+    // M5, and needs the signed helper.
+    private var tags: [String: TagRecord] = [:]
     private let biometricGate: BiometricGate?
     // Serializes prompts so two prompted signs never raise two sheets at once. Held only
     // around the gate call, never together with the handle-store lock, so it cannot
@@ -78,7 +88,9 @@ public final class SecureEnclaveService: @unchecked Sendable {
     /// returns from `SecKeyCopyExternalRepresentation`. The biometric prompt at
     /// sign time and its error parity are M3.
     public func generate(requiresBiometry: Bool = false, accessFlags: UInt? = nil,
-                         protection: String? = nil) throws -> (handle: Data, publicKey: Data) {
+                         protection: String? = nil, persistentTag: Data? = nil,
+                         udid: String? = nil, keyType: String? = nil,
+                         keySizeInBits: UInt? = nil) throws -> (handle: Data, publicKey: Data) {
         guard SecureEnclave.isAvailable else { throw Failure.unavailable }
 
         var accessError: Unmanaged<CFError>?
@@ -109,9 +121,12 @@ public final class SecureEnclaveService: @unchecked Sendable {
             access = built
         }
 
+        // Use the app's requested type and size when the interposer relayed them, so the real
+        // SecKeyCreateRandomKey rejects a type or size the SEP does not support with its own
+        // error. Absent (nil) keeps the P-256 default a created SE key has always had.
         let attributes: [String: Any] = [
-            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-            kSecAttrKeySizeInBits as String: 256,
+            kSecAttrKeyType as String: keyType.map { $0 as CFString } ?? kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrKeySizeInBits as String: keySizeInBits ?? 256,
             kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave,
             kSecPrivateKeyAttrs as String: [
                 kSecAttrIsPermanent as String: false,
@@ -132,8 +147,40 @@ public final class SecureEnclaveService: @unchecked Sendable {
         let requiresPrompt = accessFlags.map { ($0 & Self.promptFlagMask) != 0 } ?? requiresBiometry
         lock.lock()
         keys[handle] = StoredKey(key: privateKey, requiresPrompt: requiresPrompt)
+        // A permanent key (tag + udid both present) is registered for find-by-tag and enumerate.
+        if let persistentTag, let udid {
+            tags[Self.tagKey(udid: udid, appTag: persistentTag)] =
+                TagRecord(handle: handle, appTag: persistentTag)
+        }
         lock.unlock()
         return (handle, publicKey)
+    }
+
+    /// The handle and X9.63 public key of the permanent key stored under `appTag` for
+    /// `udid`, or `unknownHandle` if no such key is in this helper's session. This is how a
+    /// relaunched app finds a key it created on a previous run, while the helper stays up.
+    public func findByTag(appTag: Data, udid: String) throws -> (handle: Data, publicKey: Data) {
+        lock.lock()
+        let handle = tags[Self.tagKey(udid: udid, appTag: appTag)]?.handle
+        lock.unlock()
+        guard let handle else { throw Failure.unknownHandle }
+        return (handle, try publicKey(for: handle))
+    }
+
+    /// Every permanent key registered for `udid`: its handle, X9.63 public key, and tag. This
+    /// is what backs an app's `SecItemCopyMatching` with `kSecMatchLimitAll`, so the keychain
+    /// is enumerated natively rather than the app remembering its own tags.
+    public func listKeys(udid: String) -> [(handle: Data, publicKey: Data, appTag: Data)] {
+        lock.lock()
+        let records = tags.filter { $0.key.hasPrefix("\(udid)|") }.values
+        lock.unlock()
+        return records.compactMap { record in
+            (try? publicKey(for: record.handle)).map { (record.handle, $0, record.appTag) }
+        }
+    }
+
+    private static func tagKey(udid: String, appTag: Data) -> String {
+        "\(udid)|" + appTag.map { String(format: "%02x", $0) }.joined()
     }
 
     /// The X9.63 public key for the SEP key named by `handle`.
@@ -141,15 +188,88 @@ public final class SecureEnclaveService: @unchecked Sendable {
         try exportPublicKey(of: try lookup(handle).key)
     }
 
-    /// Sign a 32-byte SHA-256 `digest` with the SEP key named by `handle`,
-    /// returning the X9.62 DER ECDSA signature `SecKeyCreateSignature` produces on
-    /// a device. The digest is signed as given; no hashing and no `s`
-    /// normalization happen here. Whatever an app does on top of an SE signature
-    /// is the app's step, run unchanged against this faithful output.
-    public func sign(handle: Data, digest: Data) throws -> Data {
+    /// Whether the real SEP key behind `handle` supports `(operation, algorithm)`, asked of the
+    /// real key with `SecKeyIsAlgorithmSupported`. This is what makes the shadow report the
+    /// private key's support matrix (sign yes, verify no) instead of the public carrier's.
+    /// An unknown operation raw value is unsupported, the same as the framework would treat it.
+    public func isAlgorithmSupported(handle: Data, operation: UInt, algorithm: String) throws -> Bool {
+        let key = try lookup(handle).key
+        guard let type = SecKeyOperationType(rawValue: Int(operation)) else { return false }
+        return SecKeyIsAlgorithmSupported(key, type, SecKeyAlgorithm(rawValue: algorithm as CFString))
+    }
+
+    /// The real key's `SecKeyCopyAttributes` dictionary, serialized as a binary property list,
+    /// so the shadow can report the SEP key's own attributes (the application label, the
+    /// capability flags, the sizes) rather than a stub. Only property-list-serializable values
+    /// cross the wire; an opaque `SecAccessControlRef` cannot be serialized and is dropped.
+    public func copyAttributes(handle: Data) throws -> Data {
+        let key = try lookup(handle).key
+        guard let raw = SecKeyCopyAttributes(key) as? [String: Any] else { return Data() }
+        var plist: [String: Any] = [:]
+        for (attrKey, value) in raw
+            where PropertyListSerialization.propertyList(value, isValidFor: .binary) {
+            plist[attrKey] = value
+        }
+        return (try? PropertyListSerialization.data(
+            fromPropertyList: plist, format: .binary, options: 0)) ?? Data()
+    }
+
+    /// Decrypt `ciphertext` with the real SEP key under `algorithm` (ECIES). The real
+    /// `SecKeyCreateDecryptedData` runs on the real private key, so the plaintext (or the
+    /// SEP's real refusal) is what a device returns.
+    public func decrypt(handle: Data, algorithm: String, ciphertext: Data) throws -> Data {
+        let key = try lookup(handle).key
+        var error: Unmanaged<CFError>?
+        guard let plaintext = SecKeyCreateDecryptedData(
+            key, SecKeyAlgorithm(rawValue: algorithm as CFString), ciphertext as CFData, &error)
+            as Data? else {
+            throw Failure.signing(Self.message(error))
+        }
+        return plaintext
+    }
+
+    /// Derive an ECDH shared secret between the real SEP key and `peerPublicKey` (X9.63 bytes)
+    /// under `algorithm`. The real `SecKeyCopyKeyExchangeResult` runs on the real private key.
+    /// `parameters` is the caller's exchange-parameters dictionary serialized as a plist (empty
+    /// for a raw agreement); it is rebuilt and passed through, so a KDF variant's requested size
+    /// and shared info are the ones a device would use, not a stand-in's.
+    public func keyExchange(handle: Data, algorithm: String, peerPublicKey: Data,
+                            parameters: Data) throws -> Data {
+        let key = try lookup(handle).key
+        var error: Unmanaged<CFError>?
+        let peerAttributes: [String: Any] = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrKeyClass as String: kSecAttrKeyClassPublic,
+        ]
+        guard let peer = SecKeyCreateWithData(
+            peerPublicKey as CFData, peerAttributes as CFDictionary, &error) else {
+            throw Failure.signing(Self.message(error))
+        }
+        var exchangeParameters: [String: Any] = [:]
+        if !parameters.isEmpty,
+           let decoded = try? PropertyListSerialization.propertyList(
+               from: parameters, options: [], format: nil) as? [String: Any] {
+            exchangeParameters = decoded
+        }
+        guard let secret = SecKeyCopyKeyExchangeResult(
+            key, SecKeyAlgorithm(rawValue: algorithm as CFString), peer,
+            exchangeParameters as CFDictionary, &error) as Data? else {
+            throw Failure.signing(Self.message(error))
+        }
+        return secret
+    }
+
+    /// Sign `input` with the SEP key named by `handle` under `algorithm` (a
+    /// `SecKeyAlgorithm` raw string), returning whatever `SecKeyCreateSignature`
+    /// produces on a device. Digest-mode algorithms sign `input` as given; message-mode
+    /// algorithms hash it first. The algorithm is passed straight to the real key, so the
+    /// SEP's own support set decides what works, not a fixed SHA-256 digest. No `s`
+    /// normalization happens here; whatever an app does on top of an SE signature is the
+    /// app's step, run unchanged against this output.
+    public func sign(handle: Data, algorithm: String, input: Data) throws -> Data {
         let stored = try lookup(handle)
         guard stored.requiresPrompt else {
-            return try Self.signDirectly(stored.key, digest: digest)
+            return try Self.signDirectly(stored.key, algorithm: algorithm, input: input)
         }
         // A prompted key signs only through the biometric gate, which foregrounds and
         // runs Touch ID. Without a gate (the CLI helper) the sign fails closed rather
@@ -160,15 +280,16 @@ public final class SecureEnclaveService: @unchecked Sendable {
         promptLock.lock()
         defer { promptLock.unlock() }
         return try biometricGate.promptedSign(
-            key: stored.key, digest: digest, reason: "Sign with the Secure Enclave")
+            key: stored.key, algorithm: algorithm, input: input,
+            reason: "Sign with the Secure Enclave")
     }
 
-    private static func signDirectly(_ key: SecKey, digest: Data) throws -> Data {
+    private static func signDirectly(_ key: SecKey, algorithm: String, input: Data) throws -> Data {
         var error: Unmanaged<CFError>?
         guard let signature = SecKeyCreateSignature(
             key,
-            .ecdsaSignatureDigestX962SHA256,
-            digest as CFData,
+            SecKeyAlgorithm(rawValue: algorithm as CFString),
+            input as CFData,
             &error
         ) as Data? else {
             throw Failure.signing(Self.message(error))
@@ -182,6 +303,20 @@ public final class SecureEnclaveService: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard keys.removeValue(forKey: handle) != nil else { throw Failure.unknownHandle }
+        // Drop any tag that pointed at this handle, so a find-by-tag after a delete misses.
+        tags = tags.filter { $0.value.handle != handle }
+    }
+
+    /// Re-tag the key named by `handle` to `appTag` for `udid`, so find-by-tag and enumerate
+    /// follow a `SecItemUpdate` that renames a key's application tag. Unknown handles fail closed.
+    public func updateTag(handle: Data, appTag: Data, udid: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard keys[handle] != nil else { throw Failure.unknownHandle }
+        // Drop any tag record pointing at this handle, then register the new one, so an old-tag
+        // lookup misses and a new-tag lookup hits, exactly as a renamed keychain item behaves.
+        tags = tags.filter { $0.value.handle != handle }
+        tags[Self.tagKey(udid: udid, appTag: appTag)] = TagRecord(handle: handle, appTag: appTag)
     }
 
     private func exportPublicKey(of privateKey: SecKey) throws -> Data {

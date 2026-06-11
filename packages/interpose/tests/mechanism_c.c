@@ -123,23 +123,29 @@ int main(void) {
   if (sw_bitsRef) CFRelease(sw_bitsRef);
   if (sw_params) CFRelease(sw_params);
 
-  // Allowlist: an RFC4754 (raw r||s) algorithm on the SE key is refused, because
-  // the wire carries only the X9.62 DER form. The hook returns NULL, not a guess.
-  CFDataRef rejected = SecKeyCreateSignature(key, kSecKeyAlgorithmECDSASignatureDigestRFC4754SHA256,
-                                             digestData, NULL);
-  printf("rfc4754 refused: %d\n", rejected == NULL);
-  if (rejected) {
-    fails++;
-    CFRelease(rejected);
-  }
+  // Pure relay: an algorithm the old fixed-SHA256 path refused now reaches the real key. A
+  // SHA-512 digest signs under SecKeyCreateSignature and verifies under the same algorithm,
+  // exactly as a device does. The algorithm the app asks for is what signs, not a fixed pair.
+  uint8_t digest512[CC_SHA512_DIGEST_LENGTH];
+  CC_SHA512(message, (CC_LONG)strlen(message), digest512);
+  CFDataRef digest512Data = CFDataCreate(NULL, digest512, CC_SHA512_DIGEST_LENGTH);
+  CFDataRef sig512 = SecKeyCreateSignature(key, kSecKeyAlgorithmECDSASignatureDigestX962SHA512,
+                                           digest512Data, NULL);
+  Boolean sig512Ok =
+      sig512 && SecKeyVerifySignature(pub, kSecKeyAlgorithmECDSASignatureDigestX962SHA512,
+                                      digest512Data, sig512, NULL);
+  printf("sha512 signs and verifies: %d\n", sig512Ok);
+  if (!sig512Ok) fails++;
+  if (digest512Data) CFRelease(digest512Data);
+  if (sig512) CFRelease(sig512);
 
-  // The SE counters moved exactly once each: the software key's create, copy, and
-  // sign passed through and were not counted, and the refused algorithm did not
-  // reach the host. That is the passthrough invariant, measured.
+  // The SE counters: the software key's create, copy, and sign passed through and were not
+  // counted (create=1, pubkey=1); both SE signs, the SHA-256 and the SHA-512, reached the host
+  // (sign=2). That is the passthrough invariant, measured.
   simenclave_hook_stats stats = simenclave_get_hook_stats();
   printf("stats: create=%d pubkey=%d sign=%d\n", stats.create_random_key, stats.copy_public_key,
          stats.create_signature);
-  if (stats.create_random_key != 1 || stats.copy_public_key != 1 || stats.create_signature != 1) {
+  if (stats.create_random_key != 1 || stats.copy_public_key != 1 || stats.create_signature != 2) {
     fails++;
   }
 

@@ -55,7 +55,8 @@ int main(void) {
         "hello negotiates v1");
 
   se_response gen;
-  CHECK(se_client_generate(NULL, 0, &gen) == SE_OK && gen.kind == SE_RESP_GENERATED, "generate");
+  CHECK(se_client_generate(NULL, 0, NULL, 0, 0, &gen) == SE_OK && gen.kind == SE_RESP_GENERATED,
+        "generate");
   if (fails) {
     printf("CLIENT ROUNDTRIP: helper unreachable?\n");
     return 1;
@@ -69,12 +70,19 @@ int main(void) {
             memcmp(pk.public_key, gen.public_key, gen.public_key_len) == 0,
         "get_pubkey matches generate");
 
-  // SIGN a digest; it verifies under that public key.
+  // SIGN a digest under the real SecKeyAlgorithm constant (read from the SDK, not hard-coded),
+  // so the helper signs under the same algorithm the verify below checks; it verifies under
+  // that public key.
+  char sign_algo[160];
+  CFStringGetCString(kSecKeyAlgorithmECDSASignatureDigestX962SHA256, sign_algo, sizeof(sign_algo),
+                     kCFStringEncodingUTF8);
+  const size_t sign_algo_len = strlen(sign_algo);
   const char *message = "client roundtrip";
   uint8_t digest[CC_SHA256_DIGEST_LENGTH];
   CC_SHA256(message, (CC_LONG)strlen(message), digest);
   se_response sig;
-  CHECK(se_client_sign(gen.handle, gen.handle_len, digest, sizeof(digest), &sig) == SE_OK &&
+  CHECK(se_client_sign(gen.handle, gen.handle_len, (const uint8_t *)sign_algo, sign_algo_len, digest,
+                       sizeof(digest), &sig) == SE_OK &&
             sig.kind == SE_RESP_SIGNED,
         "sign");
   SecKeyRef pub = public_key_from(gen.public_key, gen.public_key_len);
@@ -96,7 +104,8 @@ int main(void) {
   CHECK(se_client_delete(gen.handle, gen.handle_len, &del) == SE_OK && del.kind == SE_RESP_DELETED,
         "delete");
   se_response after;
-  se_status as = se_client_sign(gen.handle, gen.handle_len, digest, sizeof(digest), &after);
+  se_status as = se_client_sign(gen.handle, gen.handle_len, (const uint8_t *)sign_algo,
+                                sign_algo_len, digest, sizeof(digest), &after);
   CHECK(!(as == SE_OK && after.kind == SE_RESP_SIGNED), "sign after delete fails");
 
   printf(fails ? "CLIENT ROUNDTRIP: %d failure(s)\n" : "CLIENT ROUNDTRIP: ok\n", fails);
