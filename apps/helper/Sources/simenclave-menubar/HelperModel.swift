@@ -28,6 +28,8 @@ final class HelperModel {
     private(set) var port: UInt16 = 0
     private(set) var apps: [AppActivity] = []
     private(set) var totalOps = 0
+    /// When the listener came up, for the settings uptime. Nil while stopped.
+    private(set) var startedAt: Date?
     /// Maps a minted key handle to the bundle id that generated it, so a DELETE, which carries no
     /// app id, decrements the live count of the right app.
     private var handleOwner: [Data: String] = [:]
@@ -65,6 +67,32 @@ final class HelperModel {
     }
 
     var secureEnclaveAvailable: Bool { service.isAvailable }
+
+    /// The app's marketing version (CFBundleShortVersionString), or "dev" under `swift run`.
+    var appVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev"
+    }
+
+    /// The per-user directory the helper writes its token and port to.
+    var dataDirectory: String { TokenFile.defaultDirectory() }
+
+    /// The live total of keys held across every connected app.
+    var totalKeys: Int { apps.reduce(0) { $0 + $1.keys } }
+
+    /// Reveal the data directory in Finder, the settings "open data directory" action.
+    func openDataDirectory() {
+        NSWorkspace.shared.open(URL(fileURLWithPath: dataDirectory))
+    }
+
+    /// Drop every key the helper holds and clear the connected-apps view, the settings
+    /// "reset all keys" action. The keys are in-session, so this releases them at once; a
+    /// still-connected app that signs with a now-gone handle gets the device's item-not-found.
+    func resetAllKeys() {
+        service.reset()
+        apps.removeAll()
+        handleOwner.removeAll()
+        totalOps = 0
+    }
 
     var iconName: String {
         guard secureEnclaveAvailable else { return "exclamationmark.triangle" }
@@ -104,6 +132,7 @@ final class HelperModel {
         directory = dir
         port = started.port
         running = true
+        startedAt = Date()
         UserDefaults.standard.set(Int(port), forKey: Self.lastPortKey)
         TokenFile.writePort(port, toDirectory: dir)
         applyInjection()
@@ -119,6 +148,7 @@ final class HelperModel {
         directory = nil
         running = false
         port = 0
+        startedAt = nil
     }
 
     /// Arm the booted simulators so any app they launch is injected automatically, the SimCam

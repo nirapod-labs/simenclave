@@ -323,6 +323,17 @@ public final class SecureEnclaveService: @unchecked Sendable {
             TagRecord(handle: handle, appTag: appTag)
     }
 
+    /// Drop every key and tag the helper holds. The keys are in-session (created with
+    /// `isPermanent: false`), so releasing the references is the whole reset; nothing lingers in
+    /// the chip. This backs the menubar's "reset all keys". A handle from before the reset is now
+    /// unknown, which a sign or lookup surfaces as the device's item-not-found.
+    public func reset() {
+        lock.lock()
+        keys.removeAll()
+        tags.removeAll()
+        lock.unlock()
+    }
+
     private func exportPublicKey(of privateKey: SecKey) throws -> Data {
         guard let publicKey = SecKeyCopyPublicKey(privateKey) else {
             throw Failure.publicKeyExport("SecKeyCopyPublicKey returned nil")

@@ -98,6 +98,22 @@ final class SecureEnclaveServiceTests: XCTestCase {
         XCTAssertThrowsError(try service.findByTag(appTag: tag, udid: udid, appID: "app.three"))
     }
 
+    func testResetDropsEveryKey() throws {
+        let service = SecureEnclaveService()
+        try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
+        let udid = "TEST-UDID"
+        let tag = Data("tag.reset".utf8)
+        let (handle, _) = try service.generate(persistentTag: tag, udid: udid, appID: "app")
+        XCTAssertFalse(service.listKeys(udid: udid, appID: "app").isEmpty)
+
+        service.reset()
+        // After a reset the enumerate is empty, find-by-tag misses, and the prior handle is
+        // unknown, exactly as if the keys had never been generated.
+        XCTAssertTrue(service.listKeys(udid: udid, appID: "app").isEmpty)
+        XCTAssertThrowsError(try service.findByTag(appTag: tag, udid: udid, appID: "app"))
+        XCTAssertThrowsError(try service.publicKey(for: handle))
+    }
+
     func testUpdateTagUnknownHandleFails() throws {
         let service = SecureEnclaveService()
         try XCTSkipUnless(service.isAvailable, "no Secure Enclave on this host")
