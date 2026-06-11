@@ -110,12 +110,16 @@ public struct RequestRouter: Sendable {
     /// Returns nil for an empty or all-control name, so the UI falls back to the bundle id.
     static func sanitizedDisplayName(_ raw: String?) -> String? {
         guard let raw else { return nil }
-        let cleaned = String(raw.unicodeScalars.filter {
-            !CharacterSet.controlCharacters.contains($0)
-        }).trimmingCharacters(in: .whitespaces)
+        // Drop control and format characters (newlines, escapes, RTL/bidi overrides like U+202E).
+        let stripped = raw.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }
+        // Clamp the scalar count, not the grapheme count: a single grapheme can stack unbounded
+        // combining marks (a "zalgo" name) that a grapheme-count clamp would miss, so the bound is
+        // on scalars to cap the rendered width however they cluster.
+        var view = String.UnicodeScalarView()
+        view.append(contentsOf: stripped.prefix(Wire.maxAppDisplayNameScalars))
+        let cleaned = String(view).trimmingCharacters(in: .whitespaces)
         guard !cleaned.isEmpty else { return nil }
-        let maxChars = 64
-        return cleaned.count > maxChars ? String(cleaned.prefix(maxChars)) + "…" : cleaned
+        return stripped.count > Wire.maxAppDisplayNameScalars ? cleaned + "…" : cleaned
     }
 
     private static func label(_ request: Request) -> String {

@@ -221,8 +221,9 @@ public enum Wire {
     /// The largest app-icon the helper accepts on the wire, in bytes. A real app icon
     /// rendered to PNG is a few KB; this cap rejects an app trying to flood the channel.
     public static let maxAppIconBytes = 64 * 1024
-    /// The largest app display name the helper keeps, in UTF-8 bytes, before clamping.
-    public static let maxAppDisplayNameBytes = 128
+    /// The most Unicode scalars the helper keeps from a guest display name. Clamping scalars, not
+    /// graphemes, bounds the rendered width even when a name stacks unbounded combining marks.
+    public static let maxAppDisplayNameScalars = 64
 
     /// The OSStatus error domain, the default for key 13; an OSStatus-domain
     /// failure omits the key entirely, keeping the pre-M3 bytes.
