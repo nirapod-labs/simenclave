@@ -34,6 +34,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
+  <key>ATSApplicationFontsPath</key><string>.</string>
 </dict>
 </plist>
 PLIST
@@ -52,6 +53,13 @@ rm -f "$ICON_PARTIAL"
 # light bar, white on a dark one). NSImage(named:) resolves @1x/@2x from these two files.
 cp "$REPO/assets/menubar/menubar-iconTemplate-18.png" "$APP/Contents/Resources/MenuBarIcon.png"
 cp "$REPO/assets/menubar/menubar-iconTemplate-36-2x.png" "$APP/Contents/Resources/MenuBarIcon@2x.png"
+
+# The brand face. ATSApplicationFontsPath (set in the Info.plist above) registers any font
+# in Resources at launch, so the SimEnclave wordmark renders in DM Sans. OFL.txt rides along
+# as the license requires.
+cp "$REPO/apps/helper/Resources/fonts/DMSans-Medium.ttf" "$APP/Contents/Resources/DMSans-Medium.ttf"
+cp "$REPO/apps/helper/Resources/fonts/DMSans-Bold.ttf" "$APP/Contents/Resources/DMSans-Bold.ttf"
+cp "$REPO/apps/helper/Resources/fonts/OFL.txt" "$APP/Contents/Resources/DMSans-OFL.txt"
 
 codesign -s "$SIGN_ID" --force --timestamp=none "$APP" >/dev/null 2>&1 \
   || { echo "codesign failed for identity '$SIGN_ID'"; exit 1; }
