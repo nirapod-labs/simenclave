@@ -1,3 +1,6 @@
 packages:
   - "examples/*"
   - "tools/*"
+  # The Expo RN demo is a standalone app with its own (hoisted) install, kept out of the
+  # workspace so its large native dependency tree does not enter the core repo's lockfile.
+  - "!examples/react-native"
