@@ -21,8 +21,8 @@ private func posixRead(_ fd: Int32, _ buffer: UnsafeMutableRawPointer, _ count: 
 }
 #endif
 
-/// Writes and reads the session token file with the creation invariants from
-/// docs/design/m1-helper.md. The directory is `0700`, and if it already exists
+/// Writes and reads the session token file with hardened creation invariants.
+/// The directory is `0700`, and if it already exists
 /// it must be owned by the real uid, not a symlink, and not group or world
 /// writable. The file is opened `O_CREAT | O_EXCL | O_NOFOLLOW` with mode set by
 /// `fchmod` on the descriptor, and an existing path is refused, never truncated.

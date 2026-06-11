@@ -16,7 +16,7 @@ import XCTest
 /// makes it the second, disagreeing-by-construction verifier parity needs.
 ///
 /// The device half, the same assertions run against a signature captured on real
-/// hardware, is the docs/parity.md capture run and cannot execute here.
+/// hardware, is the device-capture parity run and cannot execute here.
 final class ParityTests: XCTestCase {
     /// The service signs in digest mode, exactly as a device's
     /// `kSecKeyAlgorithmECDSASignatureDigestX962SHA256` does, so a signature over

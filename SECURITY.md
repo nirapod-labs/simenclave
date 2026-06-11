@@ -24,4 +24,8 @@ The channel is a loopback socket bound to localhost, authenticated with a per-se
 
 ## Reporting
 
-Until the repo is public, raise anything security-relevant privately with the maintainers. A coordinated-disclosure address will be added here when the project opens up.
+Report a vulnerability through GitHub's private vulnerability reporting. Open the repository's **Security** tab and choose **Report a vulnerability**, or go straight to [the advisory form](https://github.com/nirapod-labs/simenclave/security/advisories/new). That opens a private advisory only the maintainers can see, so nothing is disclosed before a fix is ready.
+
+Scope is SimEnclave's own code and configuration: the helper, the interposer, the protocol, the CLI, and the fence. A finding in a third-party dependency belongs upstream with that project, though a note here is welcome if SimEnclave's use of it is what creates the risk.
+
+We aim to acknowledge a report within a few days and to agree a disclosure timeline with you from there. The tool never touches a real user's keys or funds, so there's no production custody at stake. The fence is the invariant that matters most: a way to make SimEnclave load in a shipped app is exactly the kind of thing worth reporting.
