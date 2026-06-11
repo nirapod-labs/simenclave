@@ -54,10 +54,11 @@ sign: ## Build the release helper and codesign it (SIGN_ID=- ad-hoc; pass an ide
 	codesign -s "$(SIGN_ID)" --force apps/helper/.build/release/simenclave-helper
 	@codesign -dvv apps/helper/.build/release/simenclave-helper 2>&1 | grep -E "Authority|Signature|Identifier"
 
-test: build ## Run the C tests (ctest), the Swift tests, the static fence, and mechanism C
+test: build ## Run the C tests (ctest), the Swift tests, the fence + its self-test, and mechanism C
 	ctest --test-dir build --output-on-failure
 	@for p in $(SWIFT_PKGS); do echo "== swift test: $$p =="; ( cd $$p && xcrun swift test ) || exit 1; done
 	@bash scripts/fence-check.sh
+	@bash scripts/fence-selftest.sh
 	@$(MAKE) mechanism-c
 
 test-portable: ## The subset that runs on any runner (no SEP, no Xcode): C codec + biome + fence

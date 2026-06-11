@@ -35,3 +35,6 @@ jobs:
 
       - name: Static fence
         run: bash scripts/fence-check.sh
+
+      - name: Fence self-test (the bundle gate catches violations)
+        run: bash scripts/fence-selftest.sh
