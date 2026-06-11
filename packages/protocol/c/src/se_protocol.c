@@ -52,6 +52,8 @@ enum {
   K_PARAMS = 25,
   K_KEY_TYPE = 26,
   K_KEY_SIZE = 27,
+  K_DISPLAY_NAME = 28,
+  K_APP_ICON = 29,
 };
 // ops and status
 enum {
@@ -331,16 +333,36 @@ int se_encode_update(const uint8_t *token, size_t token_len, const uint8_t *hand
   return w.overflow ? -1 : (int)w.pos;
 }
 
-int se_encode_hello(const uint8_t *token, size_t token_len, uint64_t version, uint8_t *out,
-                    size_t cap) {
+int se_encode_hello(const uint8_t *token, size_t token_len, uint64_t version,
+                    const uint8_t *app_id, size_t app_id_len, const uint8_t *display_name,
+                    size_t display_name_len, const uint8_t *app_icon, size_t app_icon_len,
+                    uint8_t *out, size_t cap) {
+  // op, token, version are always present; the app id (14), display name (28), and icon (29)
+  // each add a key when non-empty, in ascending order. With none, the bytes match the original
+  // three-field HELLO, so an interposer that does not report identity is unchanged.
+  int has_id = app_id && app_id_len > 0;
+  int has_name = display_name && display_name_len > 0;
+  int has_icon = app_icon && app_icon_len > 0;
   writer w = {out, cap, 0, 0};
-  w_head(&w, CBOR_MAP, 3); // map(3): op, token, version
+  w_head(&w, CBOR_MAP, 3 + has_id + has_name + has_icon);
   w_head(&w, CBOR_UINT, K_OP);
   w_head(&w, CBOR_UINT, OP_HELLO);
   w_head(&w, CBOR_UINT, K_TOKEN);
   w_bytes(&w, CBOR_BYTES, token, token_len);
   w_head(&w, CBOR_UINT, K_VERSION);
   w_head(&w, CBOR_UINT, version);
+  if (has_id) {
+    w_head(&w, CBOR_UINT, K_APP_ID);
+    w_bytes(&w, CBOR_TEXT, app_id, app_id_len);
+  }
+  if (has_name) {
+    w_head(&w, CBOR_UINT, K_DISPLAY_NAME);
+    w_bytes(&w, CBOR_TEXT, display_name, display_name_len);
+  }
+  if (has_icon) {
+    w_head(&w, CBOR_UINT, K_APP_ICON);
+    w_bytes(&w, CBOR_BYTES, app_icon, app_icon_len);
+  }
   return w.overflow ? -1 : (int)w.pos;
 }
 

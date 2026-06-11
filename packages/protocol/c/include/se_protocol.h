@@ -237,17 +237,31 @@ int se_encode_update(const uint8_t *token, size_t token_len, const uint8_t *hand
                      const uint8_t *app_tag, size_t app_tag_len, uint8_t *out, size_t cap);
 
 /**
- * @brief Encode a HELLO request: token and the protocol version this side speaks.
+ * @brief Encode a HELLO request: token, the protocol version, and the optional session identity.
  *
- * @param[in]  token     32-byte capability token.
- * @param[in]  token_len Length of @p token.
- * @param[in]  version   Protocol version offered; currently 1.
- * @param[out] out       Buffer the payload is written to.
- * @param[in]  cap       Capacity of @p out.
+ * HELLO carries the connecting app's identity once, so the helper can show it: the guest bundle
+ * id (key 14), display name (key 28), and icon as PNG bytes (key 29). Each is included only when
+ * its length is non-zero; with all three absent the bytes match the original three-field HELLO.
+ * The identity is guest-reported and names the app for display only; it gates nothing, and the
+ * helper validates the name and icon before showing them.
+ *
+ * @param[in]  token            32-byte capability token.
+ * @param[in]  token_len        Length of @p token.
+ * @param[in]  version          Protocol version offered; currently 1.
+ * @param[in]  app_id           Guest bundle id, UTF-8 (key 14), or NULL.
+ * @param[in]  app_id_len       Length of @p app_id; 0 omits key 14.
+ * @param[in]  display_name     Guest display name, UTF-8 (key 28), or NULL.
+ * @param[in]  display_name_len Length of @p display_name; 0 omits key 28.
+ * @param[in]  app_icon         Guest app icon as PNG bytes (key 29), or NULL.
+ * @param[in]  app_icon_len     Length of @p app_icon; 0 omits key 29.
+ * @param[out] out              Buffer the payload is written to.
+ * @param[in]  cap              Capacity of @p out.
  * @return Bytes written, or -1 if @p cap is too small.
  */
-int se_encode_hello(const uint8_t *token, size_t token_len, uint64_t version, uint8_t *out,
-                    size_t cap);
+int se_encode_hello(const uint8_t *token, size_t token_len, uint64_t version,
+                    const uint8_t *app_id, size_t app_id_len, const uint8_t *display_name,
+                    size_t display_name_len, const uint8_t *app_icon, size_t app_icon_len,
+                    uint8_t *out, size_t cap);
 
 /**
  * @brief Encode a FIND_BY_TAG request: look up a persisted key by application tag.

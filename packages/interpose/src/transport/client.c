@@ -305,5 +305,7 @@ se_status se_client_hello(uint64_t version, se_response *out) {
   if (read_token(token) != 0) return SE_ERR_TRUNCATED;
   uint8_t payload[128];
   return do_request(payload,
-                    se_encode_hello(token, sizeof(token), version, payload, sizeof(payload)), out);
+                    se_encode_hello(token, sizeof(token), version, NULL, 0, NULL, 0, NULL, 0,
+                                    payload, sizeof(payload)),
+                    out);
 }

@@ -74,6 +74,8 @@ key `7` has to be uniquely defined by the bytes before it is checked. The keys:
 | 14  | `appID`       | request | tstr, the guest-reported bundle id |
 | 15  | `udid`        | request | tstr, the simulator UDID, for namespacing |
 | 16  | `appTag`      | request | bstr, the app's `kSecAttrApplicationTag` |
+| 28  | `appDisplayName` | request | tstr, the guest app's display name, HELLO only |
+| 29  | `appIcon`     | request | bstr, the guest app's icon as PNG, HELLO only |
 
 Operations: `1` HELLO, `2` GENERATE, `3` GET_PUBKEY, `4` SIGN, `5` DELETE,
 `6` FIND_BY_TAG.
@@ -94,10 +96,14 @@ Every request includes the token in key `7`. The examples below show it as
 
 `HELLO` negotiates the protocol version before any real work. The interposer
 sends the version it speaks, and a mismatch comes back as an error, so a future
-break is detected at the handshake rather than mid-operation:
+break is detected at the handshake rather than mid-operation. HELLO also carries
+the connecting app's identity once, so the helper can show it: the bundle id
+(14), the display name (28), and the icon as PNG bytes (29), all optional. The
+identity is guest-reported, names the app for display, and gates nothing; the
+helper validates the name and icon before showing them.
 
 ```
-{ 0: 1, 7: <token>, 8: 1 }
+{ 0: 1, 7: <token>, 8: 1, ? 14: <bundle id>, ? 28: <name>, ? 29: <icon> }
 ```
 
 `GENERATE` asks the helper to mint a key in the Mac SEP. A silent key omits the

@@ -115,12 +115,25 @@ int main(void) {
   CHECK(se_decode_response(del_resp, sizeof(del_resp), &resp) == SE_OK, "decode deleted rc");
   CHECK(resp.kind == SE_RESP_DELETED, "deleted kind");
 
-  // HELLO { 0:1, 7:token(32), 8:1 } in canonical form.
-  n = se_encode_hello(token, sizeof(token), 1, buf, sizeof(buf));
+  // HELLO { 0:1, 7:token(32), 8:1 } in canonical form, no identity.
+  n = se_encode_hello(token, sizeof(token), 1, NULL, 0, NULL, 0, NULL, 0, buf, sizeof(buf));
   uint8_t hello_prefix[] = {0xA3, 0x00, 0x01, 0x07, 0x58, 0x20};
   CHECK(n == 40 && memcmp(buf, hello_prefix, sizeof(hello_prefix)) == 0 &&
             memcmp(buf + 6, token, 32) == 0 && buf[38] == 0x08 && buf[39] == 0x01,
         "hello bytes");
+
+  // HELLO carrying identity: { 0:1, 7:token, 8:1, 14:"a", 28:"App", 29:h'0102' }. The map header
+  // grows to 4 fields and the three identity keys follow version in ascending order.
+  const uint8_t hi_icon[] = {0x01, 0x02};
+  n = se_encode_hello(token, sizeof(token), 1, (const uint8_t *)"a", 1, (const uint8_t *)"App", 3,
+                      hi_icon, sizeof(hi_icon), buf, sizeof(buf));
+  // map(6): 0xA6. After the 40-byte no-identity body: 14,"a" (0x0E 0x61 0x61), 28,"App"
+  // (0x18 0x1C 0x63 'A' 'p' 'p'), 29,h'0102' (0x18 0x1D 0x42 0x01 0x02).
+  uint8_t hi_tail[] = {0x0E, 0x61, 0x61, 0x18, 0x1C, 0x63, 'A', 'p', 'p',
+                       0x18, 0x1D, 0x42, 0x01, 0x02};
+  CHECK(n == 40 + (int)sizeof(hi_tail) && buf[0] == 0xA6 &&
+            memcmp(buf + 40, hi_tail, sizeof(hi_tail)) == 0,
+        "hello identity bytes");
 
   // Decode a HELLO-ok response { 0:1, 1:0, 8:1 }.
   uint8_t hello_resp[] = {0xA3, 0x00, 0x01, 0x01, 0x00, 0x08, 0x01};

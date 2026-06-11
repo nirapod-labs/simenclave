@@ -210,6 +210,12 @@ struct CBORMap {
         return nil
     }
 
+    /// A byte string if present and of the right type, else nil. For optional keys.
+    func optionalBytes(_ key: UInt64) -> Data? {
+        if case let .bytes(value)? = entries[key] { return value }
+        return nil
+    }
+
     /// A signed integer. Values outside `Int64` throw rather than trap: the
     /// bytes are unauthenticated, so an oversized argument is hostile input,
     /// not a programming error.

@@ -17,7 +17,8 @@ start = request / response
 ; 7 token  8 version  9 keyClass  10 errorCode  11 accessFlags  12 protection
 ; 13 errorDomain  14 appID  15 udid  16 appTag
 ; 17 entries  18 operation  19 algorithm  20 flag  21 attributes  22 ciphertext
-; 23 peerKey  24 result
+; 23 peerKey  24 result  25 parameters  26 keyType  27 keySize
+; 28 appDisplayName  29 appIcon
 
 token = bstr .size 32          ; the per-session capability token
 key-class = 0 / 1              ; 0 silent, 1 biometry
@@ -37,6 +38,9 @@ hello-request = {
   0 => 1,                ; op = HELLO
   7 => token,
   8 => 1,                ; version the interposer speaks
+  ? 14 => tstr,          ; calling app's bundle id, for display (guest-reported, not a boundary)
+  ? 28 => tstr,          ; calling app's display name, for display (guest-reported, untrusted)
+  ? 29 => bstr,          ; calling app's icon as PNG bytes (guest-reported, validated before shown)
 }
 
 generate-request = {
