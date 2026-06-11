@@ -80,6 +80,9 @@ HITS="$(git ls-files 'project.yml' '*/project.yml' '*.pbxproj' '*.xcconfig' '*In
 # --- rule 3: the injection variable stays inside the allowlist -------------
 # scripts/set-scheme-env.sh   the developer-facing injection precursor
 # scripts/fence-check.sh      this script
+# scripts/fence-selftest.sh   the bundle-fence self-test; builds violation fixtures
+#   (an Info.plist that sets the variable) in a temp dir to prove the fence catches
+#   them. Never a real artifact; rule 2 still forbids bundling the dylib.
 # packages/interpose/tests/   the mechanism harnesses and probes
 # packages/interpose/src/entry.c  the load-path comment
 # apps/helper/Sources/simenclave-menubar/HelperModel.swift  the menubar arms the
@@ -94,6 +97,7 @@ allowed() {
   case "$1" in
     scripts/set-scheme-env.sh) return 0 ;;
     scripts/fence-check.sh) return 0 ;;
+    scripts/fence-selftest.sh) return 0 ;;
     packages/interpose/tests/*) return 0 ;;
     packages/interpose/src/entry.c) return 0 ;;
     apps/helper/Sources/simenclave-menubar/HelperModel.swift) return 0 ;;
