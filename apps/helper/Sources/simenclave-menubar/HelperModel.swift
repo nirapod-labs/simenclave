@@ -8,10 +8,12 @@ import ServiceManagement
 import SimEnclaveHelperKit
 import SimEnclaveHostCore
 
-/// A simulator app that has used the Secure Enclave this session, named by its bundle id
-/// (only a GENERATE carries the id over the wire, so the count is keys minted).
+/// A simulator app that has used the Secure Enclave this session, named by its bundle id and,
+/// when the interposer announced it on HELLO, a sanitized display name. The count is keys minted
+/// this session (a GENERATE tally), not a live count.
 struct AppActivity: Identifiable {
     let id: String
+    var name: String?
     var keys: Int
     var lastSeen: Date
 }
@@ -196,15 +198,20 @@ final class HelperModel {
         """
     }
 
-    /// Record a served op for the connected-apps view. Called on the main actor.
-    func record(op: String, appID: String?) {
+    /// Record a served op for the connected-apps view. Called on the main actor. A HELLO carries
+    /// the app's identity and creates or names the entry; a GENERATE increments the minted-key
+    /// count. The display name, when present, is the router-sanitized one.
+    func record(op: String, appID: String?, displayName: String?) {
         totalOps += 1
         guard let appID else { return }
         if let index = apps.firstIndex(where: { $0.id == appID }) {
             if op == "GENERATE" { apps[index].keys += 1 }
+            if let displayName { apps[index].name = displayName }
             apps[index].lastSeen = Date()
         } else {
-            apps.insert(AppActivity(id: appID, keys: op == "GENERATE" ? 1 : 0, lastSeen: Date()), at: 0)
+            apps.insert(
+                AppActivity(id: appID, name: displayName, keys: op == "GENERATE" ? 1 : 0,
+                            lastSeen: Date()), at: 0)
         }
     }
 
@@ -233,8 +240,10 @@ final class HelperModel {
     final class Observer: ServeObserver, @unchecked Sendable {
         weak var model: HelperModel?
         init(model: HelperModel) { self.model = model }
-        func served(op: String, appID: String?) {
-            Task { @MainActor [weak model] in model?.record(op: op, appID: appID) }
+        func served(op: String, appID: String?, displayName: String?) {
+            Task { @MainActor [weak model] in
+                model?.record(op: op, appID: appID, displayName: displayName)
+            }
         }
     }
 }

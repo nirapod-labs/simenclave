@@ -46,26 +46,43 @@ public struct RequestRouter: Sendable {
         else {
             return .failure(code: OSStatusCode.authFailed, message: "invalid capability token")
         }
-        // The approval prompt: a request carrying an app id (a generate from the
-        // interposer) is checked against the in-session approval set, naming the app. A
-        // convenience over the token, not a boundary; absent an approver it proceeds.
-        if let approval, let appID = Wire.appID(in: payload), !approval.proceed(appID: appID) {
-            return .failure(code: OSStatusCode.userCanceled, message: "app not approved: \(appID)")
-        }
+        let request: Request
         do {
-            let request = try Wire.decodeRequest(payload)
-            // A per-request line on stderr, so a developer can watch the helper serve the
-            // Secure Enclave traffic an injected app drives. Naming only the op, never the
-            // token or key bytes. The observer gets the same, for a live UI.
-            let appID = Wire.appID(in: payload)
-            let label = Self.label(request)
-            FileHandle.standardError.write(
-                Data("[helper] served \(label)\(appID.map { " app=\($0)" } ?? "")\n".utf8))
-            observer?.served(op: label, appID: appID)
-            return handle(request)
+            request = try Wire.decodeRequest(payload)
         } catch {
             return .failure(code: OSStatusCode.internalError, message: String(describing: error))
         }
+        let appID = Wire.appID(in: payload)
+        // The approval prompt gates the key operations, not the identity-only HELLO announce: a
+        // request carrying an app id is checked against the in-session approval set, naming the
+        // app. A convenience over the token, not a boundary; absent an approver it proceeds.
+        if case .hello = request {
+            // the announce carries identity but does no key work, so it is never gated
+        } else if let approval, let appID, !approval.proceed(appID: appID) {
+            return .failure(code: OSStatusCode.userCanceled, message: "app not approved: \(appID)")
+        }
+        // A per-request line on stderr, so a developer can watch the helper serve the Secure
+        // Enclave traffic an injected app drives. Naming only the op and the app, never the token
+        // or key bytes. The observer gets the same plus the sanitized display name, for a live UI.
+        let label = Self.label(request)
+        let displayName = Self.sanitizedDisplayName(Wire.appDisplayName(in: payload))
+        FileHandle.standardError.write(
+            Data("[helper] served \(label)\(appID.map { " app=\($0)" } ?? "")\n".utf8))
+        observer?.served(op: label, appID: appID, displayName: displayName)
+        return handle(request)
+    }
+
+    /// Sanitize a guest-reported display name before it reaches the helper UI. The name is
+    /// hostile input: drop control characters, trim surrounding whitespace, and clamp the length.
+    /// Returns nil for an empty or all-control name, so the UI falls back to the bundle id.
+    static func sanitizedDisplayName(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let cleaned = String(raw.unicodeScalars.filter {
+            !CharacterSet.controlCharacters.contains($0)
+        }).trimmingCharacters(in: .whitespaces)
+        guard !cleaned.isEmpty else { return nil }
+        let maxChars = 64
+        return cleaned.count > maxChars ? String(cleaned.prefix(maxChars)) + "…" : cleaned
     }
 
     private static func label(_ request: Request) -> String {
