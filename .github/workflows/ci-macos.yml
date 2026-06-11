@@ -1,0 +1,37 @@
+name: ci-macos
+
+# The Apple-toolchain lane: build both interposer slices and the helper, then run
+# the tests that do not need a Secure Enclave. The hosted runner is a VM with no
+# SEP, so the swift suites skip their SE-backed cases (XCTSkipUnless) and only the
+# portable codec ctest runs from the C side. The real-SEP suite and the mechanism
+# harnesses (which sign in the SEP) are the self-hosted hardware lane (ci-hardware).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build both slices and the helper
+        run: make build
+
+      - name: Protocol codec ctest (no Secure Enclave)
+        run: ctest --test-dir build -R protocol_codec --output-on-failure
+
+      - name: Swift package tests (SE-backed cases skip without a SEP)
+        run: |
+          for p in packages/host-core packages/protocol/swift apps/helper; do
+            echo "== swift test: $p =="
+            ( cd "$p" && xcrun swift test ) || exit 1
+          done
+
+      - name: Static fence
+        run: bash scripts/fence-check.sh

@@ -1,8 +1,8 @@
 name: ci-portable
 
-# Runs anywhere. For now it enforces conventional commits on every PR. The
-# biome lint and the protocol-codec tests join this lane once there's code,
-# in M1 and after.
+# Runs anywhere (ubuntu): conventional commits on PRs, and a biome lint + format
+# check across the JS/TS tree. The Apple-toolchain build and tests are the
+# ci-macos lane; the real-Secure-Enclave suite is the self-hosted hardware lane.
 
 on:
   pull_request:
@@ -17,8 +17,8 @@ jobs:
     # PRs only. A squash merge lands on main as "<pr title> (#N)"; the appended
     # "(#N)" plus a long title can exceed subject-max-length even when every PR
     # commit passed, so re-linting the squash subject on push is brittle and
-    # redundant. Validate contributor commits on the PR; the build and test jobs
-    # that join this lane later will carry the push trigger.
+    # redundant. Validate contributor commits on the PR; the build and test lanes
+    # carry the push trigger.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -26,3 +26,17 @@ jobs:
         with:
           fetch-depth: 0
       - uses: wagoid/commitlint-github-action@v6
+
+  lint:
+    # biome lint + format check over the repo, on every PR and push. Mirrors the
+    # local `pnpm exec biome ci .`, so a green PR matches a clean working tree.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec biome ci .
