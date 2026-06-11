@@ -68,8 +68,23 @@ public struct RequestRouter: Sendable {
         let displayName = Self.sanitizedDisplayName(Wire.appDisplayName(in: payload))
         FileHandle.standardError.write(
             Data("[helper] served \(label)\(appID.map { " app=\($0)" } ?? "")\n".utf8))
-        observer?.served(op: label, appID: appID, displayName: displayName)
-        return handle(request)
+        let response = handle(request)
+        // Reported after handling, carrying the key handle the op created or removed, so the UI
+        // tracks a live per-app count: the minted handle on a successful GENERATE, the removed
+        // handle on a DELETE.
+        observer?.served(op: label, appID: appID, displayName: displayName,
+                         handle: Self.affectedHandle(request: request, response: response))
+        return response
+    }
+
+    /// The key handle an op created or removed, for the live-count view: the minted handle from a
+    /// successful GENERATE, the target handle of a DELETE. Other ops touch no handle and yield nil.
+    private static func affectedHandle(request: Request, response: Response) -> Data? {
+        switch (request, response) {
+        case let (.generate, .generated(handle, _)): return handle
+        case let (.delete(handle), .deleted): return handle
+        default: return nil
+        }
     }
 
     /// Sanitize a guest-reported display name before it reaches the helper UI. The name is

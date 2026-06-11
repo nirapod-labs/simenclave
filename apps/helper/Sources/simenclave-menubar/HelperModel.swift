@@ -9,8 +9,8 @@ import SimEnclaveHelperKit
 import SimEnclaveHostCore
 
 /// A simulator app that has used the Secure Enclave this session, named by its bundle id and,
-/// when the interposer announced it on HELLO, a sanitized display name. The count is keys minted
-/// this session (a GENERATE tally), not a live count.
+/// when the interposer announced it on HELLO, a sanitized display name. The count is the live
+/// number of keys it holds: a GENERATE adds one, the matching DELETE removes it.
 struct AppActivity: Identifiable {
     let id: String
     var name: String?
@@ -28,6 +28,9 @@ final class HelperModel {
     private(set) var port: UInt16 = 0
     private(set) var apps: [AppActivity] = []
     private(set) var totalOps = 0
+    /// Maps a minted key handle to the bundle id that generated it, so a DELETE, which carries no
+    /// app id, decrements the live count of the right app.
+    private var handleOwner: [Data: String] = [:]
 
     /// A pinned port, so the scheme environment stays stable across restarts. 0 is ephemeral.
     var fixedPort: Int {
@@ -199,20 +202,35 @@ final class HelperModel {
     }
 
     /// Record a served op for the connected-apps view. Called on the main actor. A HELLO carries
-    /// the app's identity and creates or names the entry; a GENERATE increments the minted-key
-    /// count. The display name, when present, is the router-sanitized one.
-    func record(op: String, appID: String?, displayName: String?) {
+    /// the app's identity and creates or names the entry; a GENERATE adds the minted key to the
+    /// live count and remembers its owner; a DELETE removes it from the count. The display name,
+    /// when present, is the router-sanitized one.
+    func record(op: String, appID: String?, displayName: String?, handle: Data?) {
         totalOps += 1
-        guard let appID else { return }
-        if let index = apps.firstIndex(where: { $0.id == appID }) {
-            if op == "GENERATE" { apps[index].keys += 1 }
-            if let displayName { apps[index].name = displayName }
-            apps[index].lastSeen = Date()
-        } else {
-            apps.insert(
-                AppActivity(id: appID, name: displayName, keys: op == "GENERATE" ? 1 : 0,
-                            lastSeen: Date()), at: 0)
+        // A DELETE carries no app id; attribute it to the app that minted the handle, so the live
+        // count drops for the right app.
+        if op == "DELETE" {
+            if let handle, let owner = handleOwner.removeValue(forKey: handle),
+               let i = apps.firstIndex(where: { $0.id == owner }) {
+                apps[i].keys = max(0, apps[i].keys - 1)
+                apps[i].lastSeen = Date()
+            }
+            return
         }
+        guard let appID else { return }
+        let i: Int
+        if let found = apps.firstIndex(where: { $0.id == appID }) {
+            i = found
+        } else {
+            apps.insert(AppActivity(id: appID, name: displayName, keys: 0, lastSeen: Date()), at: 0)
+            i = 0
+        }
+        if let displayName { apps[i].name = displayName }
+        if op == "GENERATE", let handle {
+            handleOwner[handle] = appID
+            apps[i].keys += 1
+        }
+        apps[i].lastSeen = Date()
     }
 
     private func setLaunchAtLogin(_ on: Bool) {
@@ -240,9 +258,9 @@ final class HelperModel {
     final class Observer: ServeObserver, @unchecked Sendable {
         weak var model: HelperModel?
         init(model: HelperModel) { self.model = model }
-        func served(op: String, appID: String?, displayName: String?) {
+        func served(op: String, appID: String?, displayName: String?, handle: Data?) {
             Task { @MainActor [weak model] in
-                model?.record(op: op, appID: appID, displayName: displayName)
+                model?.record(op: op, appID: appID, displayName: displayName, handle: handle)
             }
         }
     }
