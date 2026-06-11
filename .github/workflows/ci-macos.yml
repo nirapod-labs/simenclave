@@ -28,7 +28,7 @@ jobs:
 
       - name: Swift package tests (SE-backed cases skip without a SEP)
         run: |
-          for p in packages/host-core packages/protocol/swift apps/helper; do
+          for p in packages/host-core packages/protocol/swift apps/helper tools/simenclavectl; do
             echo "== swift test: $p =="
             ( cd "$p" && xcrun swift test ) || exit 1
           done
