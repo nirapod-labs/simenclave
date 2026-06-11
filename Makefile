@@ -9,7 +9,7 @@ export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 # (which may be the Command Line Tools, with no iOS SDKs).
 SIM_SDK    := $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun --sdk iphonesimulator --show-sdk-path)
 SIM_TARGET := arm64-apple-ios15.0-simulator
-SWIFT_PKGS := packages/host-core packages/protocol/swift apps/helper
+SWIFT_PKGS := packages/host-core packages/protocol/swift apps/helper tools/simenclavectl
 
 # Code-signing identity for `make sign`. Default is ad-hoc, which works on any
 # machine with no certificate. Pass a keychain identity for a named local build,
