@@ -10,7 +10,7 @@
   <img alt="Swift" src="https://img.shields.io/badge/Swift-F05138?style=flat-square&logo=swift&logoColor=white">
   <img alt="C" src="https://img.shields.io/badge/C-A8B9CC?style=flat-square&logo=c&logoColor=white">
   <img alt="Platform: iOS Simulator and macOS" src="https://img.shields.io/badge/Platform-iOS_Simulator_%C2%B7_macOS-lightgrey?style=flat-square&logo=apple&logoColor=white">
-  <a href="https://github.com/nirapod-labs/simenclave/releases"><img alt="Status: pre-release" src="https://img.shields.io/badge/Status-pre--release-orange?style=flat-square"></a>
+  <a href="https://github.com/nirapod-labs/simenclave/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/nirapod-labs/simenclave?style=flat-square&label=release&color=2563eb"></a>
 </p>
 
 # SimEnclave
@@ -18,8 +18,6 @@
 SimEnclave gives the iOS Simulator a real Secure Enclave. It injects a small interposer into a simulated app, catches the `SecKey` calls, and routes the Secure Enclave ones to your Mac's actual SEP over a local channel. The app signs with real hardware P-256. No mock, no software key, and the app itself imports nothing.
 
 It exists because the iOS Simulator has no Secure Enclave. That means the one thing hardware-backed signing depends on, a key that never leaves the chip, can't run where you develop all day. So every change to a signing path forces you onto a physical device. SimEnclave fixes that without weakening the security property and without ever becoming something that could ship.
-
-> **Status: approaching 1.0.** The mechanism is settled and proven; what's left is release hardening. Targeting v1.0 by end of July 2026.
 
 ## How it works
 
@@ -39,11 +37,7 @@ The app's code doesn't change. The same `SecKeyCreateSignature` that hits the SE
 
 ## It can't ship
 
-This is a development tool, and the fact that it can never reach production is enforced in code, not promised in prose. The interposer is a simulator-slice binary: dyld on a real device refuses to load it, so it can only run inside a Simulator. It reaches your app exactly one way, through `DYLD_INSERT_LIBRARIES` set in a debug Simulator scheme. A release build of your app sets no variable and references nothing, and on a device iOS library validation blocks the injection anyway, so there's nothing to load.
-
-That's checked on every PR and push. A static fence (`scripts/fence-check.sh`) asserts that any scheme carrying the variable launches the Debug configuration, that no Xcode project wires the dylib into a build, and that the variable appears only in a reviewed allowlist. A runtime fence asserts that an uninjected or unconfigured app shows the same stock failing-Secure-Enclave behavior, which proves the app has no dependency on the tool. The helper carries the interposer because it is the tool that injects it; the release workflow asserts that payload is simulator-slice, so the only binary it ships can never run anywhere but the Simulator.
-
-Read [SECURITY.md](SECURITY.md) before forming an opinion about the whole thing. It's short, and it changes how the tool should be read.
+The interposer is built for the Simulator only. Apple won't load a simulator binary on a real device, and injecting into a signed app is blocked there regardless, so it can't follow your code into production. Nothing to guard against, because nothing could run. The CI checks that keep it that way are in [SECURITY.md](SECURITY.md).
 
 ## See it run
 
@@ -64,7 +58,7 @@ It builds from source and installs the menu bar helper to `/Applications` and th
 
 ## Using it
 
-Open SimEnclave (it runs in the menu bar), then point a debug Simulator scheme at the interposer: `simenclavectl init --dylib <path>`, or click "Copy scheme environment" in the menu and paste it into the scheme. Your existing `SecKey` code then runs in the Simulator against real hardware. The CLI is built to be driven by a person or an agent, JSON output and honest exit codes throughout: `simenclavectl doctor` checks the wiring, `simenclavectl status` confirms the helper is live.
+Open SimEnclave (it lives in the menu bar). It arms every booted simulator, so the next app you launch is injected automatically and your existing `SecKey` code runs against real hardware with nothing else to wire. To pin a specific Xcode scheme instead, copy the scheme environment from the menu and paste it into the scheme; it carries the loader, the port, and the token. The CLI mirrors the helper for a person or an agent, JSON output and honest exit codes throughout: `simenclavectl doctor` checks the wiring, `simenclavectl status` confirms the helper is live.
 
 ## Architecture
 

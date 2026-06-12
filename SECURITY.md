@@ -8,9 +8,9 @@ It runs in the iOS Simulator on a developer's Mac. It operates on that developer
 
 ## Why it can't ship
 
-The interposer is a simulator-slice binary, so dyld on a real device refuses to load it: it can only run inside a Simulator process. It reaches a consuming app one way only, through the `DYLD_INSERT_LIBRARIES` environment variable set in a debug Simulator scheme. A release build of that app sets no such variable and references nothing, so there's nothing to load, and on a real device iOS library validation blocks the injection outright.
+The interposer is a simulator-slice binary, so dyld on a real device refuses to load it. It reaches a Simulator app only through `DYLD_INSERT_LIBRARIES` set in a debug scheme, a release build wires nothing, and on a device library validation blocks the injection anyway. Nothing to guard against, because nothing could run.
 
-That claim is asserted in code, on three layers. The static fence (`scripts/fence-check.sh`, run by CI on every PR and push, and again by the release workflow before any packaging) asserts that any Xcode scheme carrying the variable launches the Debug configuration, that no Xcode project wires the interposer dylib into a build, and that the variable itself appears only in a reviewed allowlist of dev tooling. The runtime fence (`run-mechanism-d.sh`, on a Mac with a simulator) asserts that an app with no injection and an app with the interposer injected but unconfigured both show the identical stock failing-Secure-Enclave behavior, which is the proof that the app has no dependency on this tool. The helper itself carries the interposer, because it is the tool that injects it; the release workflow's helper check (`fence-check.sh --helper`) asserts that payload is simulator-slice, so the only thing the tool ships can never run anywhere but the Simulator.
+CI keeps it honest on every PR. `scripts/fence-check.sh` asserts that any scheme carrying the variable is Debug-only, that no Xcode project links the dylib, that the variable stays in a reviewed allowlist, and that the interposer the helper ships is simulator-slice.
 
 There's no app code to remove and no library linked into the app. Nothing about SimEnclave reaches a user's device.
 
