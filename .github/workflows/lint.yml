@@ -1,0 +1,48 @@
+name: lint
+
+# biome lint + format check over the JS/TS/JSON tree. Path-filtered: it runs only when a file biome
+# actually checks (or its config) changes, so a docs-only or Swift/C-only change does not spend a run
+# here. Mirrors the local `pnpm exec biome ci .`, so a green PR matches a clean working tree.
+
+on:
+  pull_request:
+    paths:
+      - "**/*.js"
+      - "**/*.jsx"
+      - "**/*.ts"
+      - "**/*.tsx"
+      - "**/*.json"
+      - "**/*.jsonc"
+      - "biome.json"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/lint.yml"
+  push:
+    branches: [main]
+    paths:
+      - "**/*.js"
+      - "**/*.jsx"
+      - "**/*.ts"
+      - "**/*.tsx"
+      - "**/*.json"
+      - "**/*.jsonc"
+      - "biome.json"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/lint.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec biome ci .
