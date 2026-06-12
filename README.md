@@ -54,9 +54,23 @@ Two console apps live under [`examples/`](examples), and they do the same job fr
 
 Both generate keys, sign, verify, and manage keychain items against the same host Secure Enclave through SimEnclave. That's the point of having two: the bridge hooks the `SecKey` C API, so it doesn't care whether the app on top is Swift or JavaScript. Same hardware, same signatures, different framework.
 
+## Install
+
+```sh
+brew install nirapod-labs/simenclave/simenclave
+```
+
+It builds the helper and the CLI from source on your Mac. Building locally is the whole trick: a binary you compile yourself is never quarantined, so there's no Gatekeeper wall, and the Secure Enclave works under the ad-hoc signature. Without Homebrew:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nirapod-labs/simenclave/main/scripts/install.sh | sh
+```
+
+There is no notarized download, and that's deliberate. SimEnclave has no paid Apple Developer ID, so a `.app` pulled through a browser would carry `com.apple.quarantine` and Gatekeeper would refuse it. A locally built one does not. The release does attach an ad-hoc `.app` zip for the curious; opening it first needs `xattr -dr com.apple.quarantine SimEnclave.app`.
+
 ## Using it
 
-Coming as the milestones land. The short version, once it's ready: `brew install` the helper, run `simenclavectl init` to point your scheme at the interposer, and your existing `SecKey` code works in the Simulator against real hardware. The CLI is built to be driven by a person or an agent, with JSON output and real exit codes throughout.
+Open SimEnclave (it runs in the menu bar), then point a debug Simulator scheme at the interposer: `simenclavectl init --dylib <path>`, or click "Copy scheme environment" in the menu and paste it into the scheme. Your existing `SecKey` code then runs in the Simulator against real hardware. The CLI is built to be driven by a person or an agent, JSON output and honest exit codes throughout: `simenclavectl doctor` checks the wiring, `simenclavectl status` confirms the helper is live.
 
 ## Architecture
 

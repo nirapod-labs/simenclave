@@ -21,7 +21,7 @@ C_FILES    := $(shell find packages/interpose/src packages/interpose/include pac
                             -type f \( -name '*.c' -o -name '*.h' \) 2>/dev/null)
 
 .PHONY: help bootstrap configure build dylib helper test test-portable \
-        fence docs sign mechanism-c mechanism-d cryptokit-probe lint format clean
+        fence docs sign release mechanism-c mechanism-d cryptokit-probe lint format clean
 
 help: ## Show targets
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-14s %s\n", $$1, $$2}'
@@ -53,6 +53,9 @@ sign: ## Build the release helper and codesign it (SIGN_ID=- ad-hoc; pass an ide
 	cd apps/helper && xcrun swift build -c release
 	codesign -s "$(SIGN_ID)" --force apps/helper/.build/release/simenclave-helper
 	@codesign -dvv apps/helper/.build/release/simenclave-helper 2>&1 | grep -E "Authority|Signature|Identifier"
+
+release: ## Cut a release: bump VERSION + mirrors, commit, tag, push (make release VERSION=x.y.z); the tag triggers the release workflow
+	@bash scripts/release.sh "$(VERSION)"
 
 test: build ## Run the C tests (ctest), the Swift tests, the fence + its self-test, and mechanism C
 	ctest --test-dir build --output-on-failure

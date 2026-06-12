@@ -1,28 +1,111 @@
 name: release
 
-# Build and sign the helper, notarize and staple it, build the interposer for
-# the simulator slice, attach both to a GitHub release, and update the Homebrew
-# cask. Implemented in M5. The fence gates it already: no release job runs
-# before the static fence assertions pass, and the M5 packaging step must run
-# fence-check.sh --bundle on the built .app before attaching it.
+# Cut by a tag push (scripts/release.sh). Builds the helper .app and the CLI from the tagged source,
+# gates them through the fence (static and bundle) and the non-SEP tests, packages a tag-pinned
+# source tarball, an ad-hoc .app zip, and SHA256SUMS, publishes a GitHub Release, then opens the
+# Homebrew formula bump as a PR. Nothing is shipped that is not built here from the tag; the fence
+# bundle gate is the last word before anything is attached.
 
 on:
-  workflow_dispatch:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
 
 permissions:
-  contents: read
+  contents: write # create the release and push the formula-bump branch
+  pull-requests: write # open the formula-bump PR
 
 jobs:
-  fence:
-    runs-on: ubuntu-latest
+  release:
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - run: bash scripts/fence-check.sh
+        with:
+          fetch-depth: 0 # full history for the changelog and git archive
 
-  release:
-    needs: fence
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Placeholder. Implement sign, notarize, and package in M5; run fence-check.sh --bundle on the built .app."
+      - name: Assert the tag matches VERSION
+        run: |
+          want="v$(cat VERSION)"
+          [ "$want" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME does not match VERSION ($want)"; exit 1; }
+
+      - name: Build the helper .app and the CLI (ad-hoc signed)
+        run: |
+          bash scripts/build-menubar-app.sh
+          ( cd tools/simenclavectl && xcrun swift build -c release )
+          cp tools/simenclavectl/.build/release/simenclavectl dist/simenclavectl
+
+      - name: Fence gates (static, bundle, non-SEP tests)
+        run: |
+          bash scripts/fence-check.sh
+          bash scripts/fence-check.sh --bundle dist/SimEnclave.app
+          for p in packages/host-core packages/protocol/swift apps/helper tools/simenclavectl; do
+            echo "== swift test: $p =="
+            ( cd "$p" && xcrun swift test ) || exit 1
+          done
+
+      - name: Package (tag-pinned source tarball, app zip, checksums)
+        id: package
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          mkdir -p out
+          git archive --format=tar.gz --prefix="simenclave-$ver/" \
+            -o "out/simenclave-$ver.tar.gz" "$GITHUB_REF_NAME"
+          ditto -c -k --keepParent dist/SimEnclave.app "out/SimEnclave-$ver-macos.zip"
+          cat > out/CLEAR-QUARANTINE.txt <<'NOTE'
+          This .app is ad-hoc signed, not notarized. After unzipping, clear the download
+          quarantine so macOS will open it:
+
+            xattr -dr com.apple.quarantine SimEnclave.app
+
+          Or install from source with Homebrew, which is never quarantined:
+
+            brew install nirapod-labs/simenclave/simenclave
+          NOTE
+          ( cd out && shasum -a 256 ./* > SHA256SUMS )
+          echo "ver=$ver" >> "$GITHUB_OUTPUT"
+
+      - name: Release notes from the commits since the last tag
+        run: |
+          prev="$(git tag --list 'v*' --sort=-v:refname | grep -vx "$GITHUB_REF_NAME" | head -1)"
+          {
+            echo "## SimEnclave ${GITHUB_REF_NAME}"
+            echo
+            if [ -n "$prev" ]; then
+              git log --no-merges --pretty='- %s' "$prev..$GITHUB_REF_NAME"
+            else
+              git log --no-merges --pretty='- %s' "$GITHUB_REF_NAME"
+            fi
+            echo
+            echo "Install (builds from source, never quarantined):"
+            echo '```'
+            echo "brew install nirapod-labs/simenclave/simenclave"
+            echo '```'
+            echo "The downloadable .app is ad-hoc signed; see CLEAR-QUARANTINE.txt to open it."
+          } > out/notes.md
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --title "SimEnclave $GITHUB_REF_NAME" \
+            --notes-file out/notes.md \
+            out/simenclave-*.tar.gz out/SimEnclave-*.zip out/SHA256SUMS out/CLEAR-QUARANTINE.txt
+
+      - name: Open the Homebrew formula bump PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ver="${{ steps.package.outputs.ver }}"
+          url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
+          sha="$(curl -fsSL "$url" | shasum -a 256 | awk '{print $1}')"
+          sed -i.bak -E "s#  url \".*\"#  url \"$url\"#; s#  sha256 \".*\"#  sha256 \"$sha\"#" Formula/simenclave.rb
+          rm -f Formula/simenclave.rb.bak
+          git config user.name "nirapod-release"
+          git config user.email "release@users.noreply.github.com"
+          branch="release/formula-$ver"
+          git checkout -b "$branch"
+          git add Formula/simenclave.rb
+          git commit -m "chore(release): formula v$ver"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "chore(release): formula v$ver" \
+            --body "Automated Homebrew formula bump to v$ver (tarball url + sha256), so brew upgrade sees the release. Merge after the release publishes."

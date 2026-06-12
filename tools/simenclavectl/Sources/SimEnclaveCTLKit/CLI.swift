@@ -24,6 +24,7 @@ public enum CLI {
         case "init": return initialize(rest)
         case "keys": return keys(rest)
         case "sign": return sign(rest)
+        case "version", "--version": return version(rest)
         case "help", "-h", "--help": printUsage(); return 0
         default:
             printError("unknown command: \(command)")
@@ -178,6 +179,15 @@ public enum CLI {
         }
     }
 
+    /// `version` — print the CLI's release version and the protocol version it speaks.
+    static func version(_ arguments: [String]) -> Int32 {
+        emit(.object([
+            ("version", .string(simenclavectlVersion)),
+            ("protocol", .int(Int(Wire.version1))),
+        ]))
+        return 0
+    }
+
     // MARK: - Endpoint
 
     private struct Endpoint {
@@ -270,6 +280,7 @@ public enum CLI {
           init      print the scheme environment to inject; --dylib <path> adds the loader var
           keys      list keys for a simulator; --udid <udid> [--app <bundle id>] (JSON)
           sign      sign a digest; --handle <hex> --digest <hex> [--algorithm <id>] (JSON)
+          version   print the CLI and protocol version (JSON)
           help      show this message
 
         The port and token are discovered from SIMENCLAVE_PORT / SIMENCLAVE_TOKEN,

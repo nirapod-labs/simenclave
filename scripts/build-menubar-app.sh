@@ -9,6 +9,8 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 SIGN_ID="${SIGN_ID:--}"
 APP="$REPO/dist/SimEnclave.app"
+# The single version source; the bundle's CFBundleShortVersionString follows it.
+VERSION="$(cat "$REPO/VERSION" 2>/dev/null || echo 0.0.0)"
 
 echo "building simenclave-menubar (release)..."
 ( cd "$REPO/apps/helper" && xcrun swift build -c release --product simenclave-menubar ) || exit 1
@@ -18,7 +20,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/SimEnclave"
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -30,7 +32,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIconFile</key><string>simenclave</string>
   <key>CFBundleIconName</key><string>simenclave</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
