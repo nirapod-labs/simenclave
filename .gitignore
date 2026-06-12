@@ -28,3 +28,6 @@ dist/notarization/
 *.local
 *.log
 dist/
+
+# Quarkdown build output
+quarkdown-output/
