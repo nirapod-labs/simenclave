@@ -56,9 +56,10 @@ jobs:
 
             xattr -dr com.apple.quarantine SimEnclave.app
 
-          Or install from source with Homebrew, which is never quarantined:
+          Or install from source with Homebrew:
 
-            brew install nirapod-labs/simenclave/simenclave
+            brew tap nirapod-labs/simenclave https://github.com/nirapod-labs/simenclave
+            brew install simenclave
           NOTE
           ( cd out && shasum -a 256 ./* > SHA256SUMS )
           echo "ver=$ver" >> "$GITHUB_OUTPUT"
@@ -75,9 +76,10 @@ jobs:
               git log --no-merges --pretty='- %s' "$GITHUB_REF_NAME"
             fi
             echo
-            echo "Install (builds from source, never quarantined):"
+            echo "Install (builds from source):"
             echo '```'
-            echo "brew install nirapod-labs/simenclave/simenclave"
+            echo "brew tap nirapod-labs/simenclave https://github.com/nirapod-labs/simenclave"
+            echo "brew install simenclave"
             echo '```'
             echo "The downloadable .app is ad-hoc signed; see CLEAR-QUARANTINE.txt to open it."
           } > out/notes.md
