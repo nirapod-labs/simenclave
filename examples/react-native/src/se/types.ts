@@ -9,6 +9,7 @@
 /** The access-control gate a key is created with: a real SecAccessControlCreateFlags set. */
 export type KeyGate = "silent" | "biometry" | "presence" | "passcode";
 
+/** The selectable gates, with display labels and SF Symbols for the picker. */
 export const KEY_GATES: { id: KeyGate; label: string; symbol: string }[] = [
   { id: "silent", label: "Silent", symbol: "lock" },
   { id: "biometry", label: "Biometry", symbol: "faceid" },
@@ -23,6 +24,7 @@ export type Protection =
   | "afterFirstUnlockThisDevice"
   | "afterFirstUnlock";
 
+/** The selectable protection classes, with display labels and the short keychain name. */
 export const PROTECTIONS: { id: Protection; label: string; short: string }[] = [
   { id: "whenUnlockedThisDevice", label: "When unlocked, this device", short: "WhenUnlocked" },
   { id: "whenUnlocked", label: "When unlocked", short: "WhenUnlocked" },
@@ -37,6 +39,7 @@ export const PROTECTIONS: { id: Protection; label: string; short: string }[] = [
 /** Digest mode signs a SHA-256 the app computed; message mode hands the raw message to the SEP. */
 export type SignMode = "digest" | "message";
 
+/** The two signing inputs the picker offers. */
 export const SIGN_MODES: { id: SignMode; label: string }[] = [
   { id: "digest", label: "Digest" },
   { id: "message", label: "Message" },
@@ -83,18 +86,21 @@ export interface ProviderCapabilities {
   enumerate: boolean;
 }
 
+/** The inputs to mint a key: its gate, protection class, and whether to persist it in the keychain. */
 export interface GenerateOptions {
   gate: KeyGate;
   protection: Protection;
   persist: boolean;
 }
 
+/** The inputs to sign with a key: the key id, the bytes, and the sign mode. */
 export interface SignOptions {
   keyId: string;
   message: string;
   mode: SignMode;
 }
 
+/** The inputs to verify a signature against a key's public key. */
 export interface VerifyOptions {
   keyId: string;
   message: string;
