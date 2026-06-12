@@ -10,7 +10,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "dev.simenclave.ReactNativeExample",
-      "icon": "./assets/simenclave-dev.icon"
+      "icon": "./assets/icon-dev.png"
     },
     "android": {
       "adaptiveIcon": {
