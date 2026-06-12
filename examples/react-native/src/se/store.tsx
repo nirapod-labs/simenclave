@@ -12,12 +12,14 @@ import type { KeyGate, KeyRecord, Protection, SignMode, SignatureRecord } from "
 // selected key, the last signature, a history trail, and a transient toast, and it drives the
 // raw-SecKey provider's real native calls against the hardware Secure Enclave.
 
+/** A transient banner: its kind, message, and a monotonic id so a new toast replaces the last. */
 export interface ToastState {
   kind: "success" | "error" | "info";
   text: string;
   id: number;
 }
 
+/** One line of the history trail: an outcome (`ok` true/false, or null for neutral) and a timestamp. */
 export interface LogLine {
   id: number;
   ok: boolean | null;
@@ -52,6 +54,11 @@ interface ConsoleValue {
 
 const ConsoleContext = createContext<ConsoleValue | null>(null);
 
+/**
+ * The console store: holds the keys minted this session, the selection, the last signature, the
+ * history trail, and a toast, and drives the provider's real native Secure Enclave calls. Wrap the
+ * app in it; read it with {@link useConsole}.
+ */
 export function ConsoleProvider({ children }: { children: React.ReactNode }) {
   const provider = secureEnclaveProvider;
 
@@ -234,6 +241,7 @@ export function ConsoleProvider({ children }: { children: React.ReactNode }) {
   return <ConsoleContext.Provider value={value}>{children}</ConsoleContext.Provider>;
 }
 
+/** Read the console store from inside a {@link ConsoleProvider}. Throws if used outside one. */
 export function useConsole(): ConsoleValue {
   const value = useContext(ConsoleContext);
   if (!value) throw new Error("useConsole must be used inside ConsoleProvider");

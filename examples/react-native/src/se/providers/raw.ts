@@ -44,6 +44,12 @@ function parseTag(tag: string): { gate: KeyGate; protection: Protection; seq: nu
   return { gate, protection, seq };
 }
 
+/**
+ * Build the raw-SecKey provider: the full-fidelity {@link SecureEnclaveProvider} over the
+ * first-party native module. It drives every access-control gate, the protection class, permanent
+ * keys with an arbitrary tag, both sign modes, and the SecItem keychain ops. The gate, protection,
+ * and a sequence ride in the application tag, so a relaunch rebuilds each row from the keychain.
+ */
 export function createRawProvider(): SecureEnclaveProvider {
   // The tag for each live handle, so deleteKey can also drop the keychain item.
   const tagByHandle = new Map<string, string | null>();
