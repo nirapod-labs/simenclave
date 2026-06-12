@@ -2,8 +2,8 @@
 # curl -fsSL https://raw.githubusercontent.com/nirapod-labs/simenclave/main/scripts/install.sh | sh
 #
 # Build SimEnclave from source on this Mac and install it: the menu bar helper to /Applications and
-# the simenclavectl CLI to ~/.local/bin. Homebrew installs the same build from source; see the
-# README for the tap command.
+# the simenclavectl CLI to ~/.local/bin. Building locally keeps the binaries off the Gatekeeper
+# quarantine path, and the Secure Enclave works under the ad-hoc signature.
 #
 # The source is cloned at a release tag (the latest release, or SIMENCLAVE_REF=<tag>). The tag is
 # validated to be a version tag before use, so the clone follows a published release, not a branch.
@@ -19,9 +19,12 @@ command -v git >/dev/null || die "git is required"
 command -v xcrun >/dev/null || die "the Xcode command line tools are required: xcode-select --install"
 
 if [ -z "$REF" ]; then
-  REF="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-    | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)"
-  [ -n "$REF" ] || die "no published release yet; pass SIMENCLAVE_REF=<tag> to build a specific tag"
+  # Resolve the release tag from VERSION on the default branch over raw.githubusercontent, the same
+  # host this script was fetched from, so the install does not depend on the rate-limited GitHub API
+  # (60 unauthenticated requests per hour) and does not care whether the release is a prerelease.
+  ver="$(curl -fsSL "https://raw.githubusercontent.com/$REPO/main/VERSION" 2>/dev/null | tr -d '[:space:]' || true)"
+  [ -n "$ver" ] || die "could not read the latest version; pass SIMENCLAVE_REF=<tag> to build a specific tag"
+  REF="v$ver"
 fi
 
 # Only follow a version tag (vX.Y.Z, optionally -prerelease). git clone --branch resolves a branch

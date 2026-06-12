@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Cut a release: guard hard, bump VERSION and the two mirrors that cannot read it at build time,
 # commit, tag, push. The tag push is the only trigger; .github/workflows/release.yml does the
-# build, the fence gates, packaging, checksums, the GitHub Release, and the Homebrew formula bump.
+# build, the fence gates, packaging, checksums, and the GitHub Release.
 #
 # Usage: scripts/release.sh <version>     (semver MAJOR.MINOR.PATCH, ahead of the last tag)
 #
@@ -39,7 +39,7 @@ state="$(gh run list --branch main --limit 40 --json headSha,conclusion,status \
 
 # --- bump VERSION and the mirrors that cannot read it at build time ---------
 # The .app's CFBundleShortVersionString reads VERSION at build; the CLI constant and package.json
-# cannot, so rewrite them here. The Homebrew formula is bumped by the release workflow after.
+# cannot, so rewrite them here.
 printf '%s\n' "$NEW" > VERSION
 CLI_VERSION_FILE="tools/simenclavectl/Sources/SimEnclaveCTLKit/Version.swift"
 sed -i.bak -E "s/(simenclavectlVersion = \")[^\"]+(\")/\1$NEW\2/" "$CLI_VERSION_FILE"

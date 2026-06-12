@@ -57,17 +57,10 @@ Both generate keys, sign, verify, and manage keychain items against the same hos
 ## Install
 
 ```sh
-brew tap nirapod-labs/simenclave https://github.com/nirapod-labs/simenclave
-brew install simenclave
-```
-
-Or without Homebrew:
-
-```sh
 curl -fsSL https://raw.githubusercontent.com/nirapod-labs/simenclave/main/scripts/install.sh | sh
 ```
 
-Both build from source and install the menu bar helper plus the `simenclavectl` CLI. Needs Xcode.
+It builds from source and installs the menu bar helper to `/Applications` and the `simenclavectl` CLI to `~/.local/bin`. Needs Xcode. To build a specific release, set `SIMENCLAVE_REF=v1.2.3`.
 
 ## Using it
 

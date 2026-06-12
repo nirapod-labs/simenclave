@@ -2,17 +2,16 @@ name: release
 
 # Cut by a tag push (scripts/release.sh). Builds the helper .app and the CLI from the tagged source,
 # gates them through the fence (static and bundle) and the non-SEP tests, packages a tag-pinned
-# source tarball, an ad-hoc .app zip, and SHA256SUMS, publishes a GitHub Release, then opens the
-# Homebrew formula bump as a PR. Nothing is shipped that is not built here from the tag; the fence
-# bundle gate is the last word before anything is attached.
+# source tarball, an ad-hoc .app zip, and SHA256SUMS, and publishes a GitHub Release. Nothing is
+# shipped that is not built here from the tag; the fence bundle gate is the last word before
+# anything is attached.
 
 on:
   push:
     tags: ["v*"]
 
 permissions:
-  contents: write # create the release and push the formula-bump branch
-  pull-requests: write # open the formula-bump PR
+  contents: write # create the release
 
 jobs:
   release:
@@ -56,10 +55,9 @@ jobs:
 
             xattr -dr com.apple.quarantine SimEnclave.app
 
-          Or install from source with Homebrew:
+          Or build from source, which is never quarantined:
 
-            brew tap nirapod-labs/simenclave https://github.com/nirapod-labs/simenclave
-            brew install simenclave
+            curl -fsSL https://raw.githubusercontent.com/nirapod-labs/simenclave/main/scripts/install.sh | sh
           NOTE
           ( cd out && shasum -a 256 ./* > SHA256SUMS )
           echo "ver=$ver" >> "$GITHUB_OUTPUT"
@@ -78,8 +76,7 @@ jobs:
             echo
             echo "Install (builds from source):"
             echo '```'
-            echo "brew tap nirapod-labs/simenclave https://github.com/nirapod-labs/simenclave"
-            echo "brew install simenclave"
+            echo "curl -fsSL https://raw.githubusercontent.com/nirapod-labs/simenclave/main/scripts/install.sh | sh"
             echo '```'
             echo "The downloadable .app is ad-hoc signed; see CLEAR-QUARANTINE.txt to open it."
           } > out/notes.md
@@ -93,27 +90,3 @@ jobs:
           gh release create "$GITHUB_REF_NAME" $pre --title "SimEnclave $GITHUB_REF_NAME" \
             --notes-file out/notes.md \
             out/simenclave-*.tar.gz out/SimEnclave-*.zip out/SHA256SUMS out/CLEAR-QUARANTINE.txt
-
-      - name: Open the Homebrew formula bump PR
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          ver="${{ steps.package.outputs.ver }}"
-          # Point the formula at the release-attached tarball, the one SHA256SUMS covers, and reuse
-          # that published checksum, so the formula and SHA256SUMS pin the same byte-stable artifact.
-          tarball="simenclave-$ver.tar.gz"
-          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${tarball}"
-          sha="$(awk -v f="./$tarball" '$2==f {print $1}' out/SHA256SUMS)"
-          [ -n "$sha" ] || { echo "no checksum for $tarball in SHA256SUMS"; exit 1; }
-          sed -i.bak -E "s#  url \".*\"#  url \"$url\"#; s#  sha256 \".*\"#  sha256 \"$sha\"#" Formula/simenclave.rb
-          rm -f Formula/simenclave.rb.bak
-          git config user.name "nirapod-release"
-          git config user.email "release@users.noreply.github.com"
-          branch="release/formula-$ver"
-          git checkout -b "$branch"
-          git add Formula/simenclave.rb
-          git commit -m "chore(release): formula v$ver"
-          git push origin "$branch"
-          gh pr create --base main --head "$branch" \
-            --title "chore(release): formula v$ver" \
-            --body "Automated Homebrew formula bump to v$ver (tarball url + sha256), so brew upgrade sees the release. Merge after the release publishes."
