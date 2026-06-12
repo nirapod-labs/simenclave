@@ -60,13 +60,13 @@ Both generate keys, sign, verify, and manage keychain items against the same hos
 brew install nirapod-labs/simenclave/simenclave
 ```
 
-It builds the helper and the CLI from source on your Mac. Building locally is the whole trick: a binary you compile yourself is never quarantined, so there's no Gatekeeper wall, and the Secure Enclave works under the ad-hoc signature. Without Homebrew:
+Or without Homebrew:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/nirapod-labs/simenclave/main/scripts/install.sh | sh
 ```
 
-There is no notarized download, and that's deliberate. SimEnclave has no paid Apple Developer ID, so a `.app` pulled through a browser would carry `com.apple.quarantine` and Gatekeeper would refuse it. A locally built one does not. The release does attach an ad-hoc `.app` zip for the curious; opening it first needs `xattr -dr com.apple.quarantine SimEnclave.app`.
+Both build from source and install the menu bar helper plus the `simenclavectl` CLI. Needs Xcode.
 
 ## Using it
 
