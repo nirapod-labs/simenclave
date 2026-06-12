@@ -76,9 +76,11 @@ final class HelperModel {
     /// The per-user directory the helper writes its token and port to.
     var dataDirectory: String { TokenFile.defaultDirectory() }
 
-    /// The live total of keys the helper holds, read from the store so it counts keys whose app
-    /// has dropped out of the connected-apps view, not just the currently connected ones.
-    var totalKeys: Int { service.keyCount }
+    /// The live total of keys the helper holds, mirroring the store so it counts keys whose app has
+    /// dropped out of the connected-apps view, not just the currently connected ones. Stored (not a
+    /// computed read of the store), so a generate or delete actually re-renders the settings view;
+    /// `record` refreshes it after every op, `start` and `resetAllKeys` set it directly.
+    private(set) var totalKeys = 0
 
     /// Reveal the data directory in Finder, the settings "open data directory" action.
     func openDataDirectory() {
@@ -93,6 +95,7 @@ final class HelperModel {
         apps.removeAll()
         handleOwner.removeAll()
         totalOps = 0
+        totalKeys = 0
     }
 
     var iconName: String {
@@ -134,6 +137,7 @@ final class HelperModel {
         port = started.port
         running = true
         startedAt = Date()
+        totalKeys = service.keyCount
         UserDefaults.standard.set(Int(port), forKey: Self.lastPortKey)
         TokenFile.writePort(port, toDirectory: dir)
         applyInjection()
@@ -238,6 +242,10 @@ final class HelperModel {
     /// when present, is the router-sanitized one.
     func record(op: String, appID: String?, displayName: String?, handle: Data?) {
         totalOps += 1
+        // Mirror the store's key count after the op the router just handled, so the settings total
+        // tracks generates and deletes live. A stored property the settings view observes; the
+        // per-app popover count is maintained separately below.
+        defer { totalKeys = service.keyCount }
         // A DELETE carries no app id; attribute it to the app that minted the handle, so the live
         // count drops for the right app.
         if op == "DELETE" {
