@@ -21,11 +21,7 @@ SimEnclave gives the iOS Simulator a real Secure Enclave. It injects a small int
 It exists because the iOS Simulator has no Secure Enclave. That means the one thing hardware-backed signing depends on, a key that never leaves the chip, can't run where you develop all day. So every change to a signing path forces you onto a physical device. SimEnclave fixes that without weakening the security property and without ever becoming something that could ship.
 
 <p align="center">
-  <a href="https://github.com/nirapod-labs/simenclave/blob/main/assets/github/showcase.mp4">
-    <img src="assets/github/showcase-poster.jpg" width="830" alt="Watch the SimEnclave demo">
-  </a>
-  <br>
-  <a href="https://github.com/nirapod-labs/simenclave/blob/main/assets/github/showcase.mp4">▶ Watch the demo</a>
+  <video src="https://github.com/user-attachments/assets/d6072dd8-77e3-4ae4-8e38-4775de57ad63" controls muted width="830"></video>
 </p>
 
 ## How it works
