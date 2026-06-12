@@ -11,6 +11,7 @@
   <img alt="C" src="https://img.shields.io/badge/C-A8B9CC?style=flat-square&logo=c&logoColor=white">
   <img alt="Platform: iOS Simulator and macOS" src="https://img.shields.io/badge/Platform-iOS_Simulator_%C2%B7_macOS-lightgrey?style=flat-square&logo=apple&logoColor=white">
   <a href="https://github.com/nirapod-labs/simenclave/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/nirapod-labs/simenclave?style=flat-square&label=release&color=2563eb"></a>
+  <a href="https://nirapod-labs.github.io/simenclave/"><img alt="Documentation" src="https://img.shields.io/badge/docs-architecture-2563eb?style=flat-square"></a>
 </p>
 
 # SimEnclave
@@ -18,6 +19,10 @@
 SimEnclave gives the iOS Simulator a real Secure Enclave. It injects a small interposer into a simulated app, catches the `SecKey` calls, and routes the Secure Enclave ones to your Mac's actual SEP over a local channel. The app signs with real hardware P-256. No mock, no software key, and the app itself imports nothing.
 
 It exists because the iOS Simulator has no Secure Enclave. That means the one thing hardware-backed signing depends on, a key that never leaves the chip, can't run where you develop all day. So every change to a signing path forces you onto a physical device. SimEnclave fixes that without weakening the security property and without ever becoming something that could ship.
+
+<p align="center">
+  <video src="https://github.com/nirapod-labs/simenclave/raw/main/assets/github/showcase.mp4" width="830" controls></video>
+</p>
 
 ## How it works
 
