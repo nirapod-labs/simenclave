@@ -1,7 +1,7 @@
 {
   "name": "simenclave",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0-beta",
   "description": "Real hardware Secure Enclave for the iOS Simulator.",
   "author": "Nirapod Labs",
   "license": "Apache-2.0",
