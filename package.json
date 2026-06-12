@@ -1,12 +1,15 @@
 {
   "name": "simenclave",
   "private": true,
-  "version": "1.0.0-beta",
+  "version": "1.0.0-beta.2",
   "description": "Real hardware Secure Enclave for the iOS Simulator.",
   "author": "Nirapod Labs",
   "license": "Apache-2.0",
   "homepage": "https://github.com/nirapod-labs/simenclave",
-  "repository": { "type": "git", "url": "https://github.com/nirapod-labs/simenclave.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nirapod-labs/simenclave.git"
+  },
   "packageManager": "pnpm@9.12.0",
   "engines": {
     "node": ">=20"
