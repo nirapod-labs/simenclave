@@ -9,7 +9,7 @@ A developer tool that gives the iOS Simulator a real Secure Enclave. It injects 
 ## Two ideas that shape the whole codebase
 
 - **Faithfulness.** SimEnclave must be indistinguishable from a real device Secure Enclave. It relays the real SEP's behavior and adds nothing of its own: no signature canonicalization, no app-specific logic. Anything app-specific (a particular signature canonicalization, or a canonical hash the app computes) belongs in the consuming app, so the same app code runs identically in the simulator and on a device. Do not add app-specific behavior here.
-- **The fence.** The tool must be unable to run in a shipped app. The interposer loads only through `DYLD_INSERT_LIBRARIES` set in a debug simulator scheme; release builds bundle no interposer and set no variable, and CI asserts both. Treat this as a safety invariant, not a convention.
+- **The fence.** The tool must be unable to run in a shipped app. The interposer is a simulator-slice binary (dyld on a device refuses it) and reaches a consuming app only through `DYLD_INSERT_LIBRARIES` set in a debug simulator scheme; a release build of that app sets no variable and references nothing. CI asserts the debug-only scheme rule, the variable allowlist, and that the interposer the helper ships is simulator-slice (`fence-check.sh --helper`). The helper carries the interposer because it is the tool that injects it. Treat this as a safety invariant, not a convention.
 
 ## Build and test
 

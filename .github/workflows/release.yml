@@ -35,7 +35,7 @@ jobs:
       - name: Fence gates (static, bundle, non-SEP tests)
         run: |
           bash scripts/fence-check.sh
-          bash scripts/fence-check.sh --bundle dist/SimEnclave.app
+          bash scripts/fence-check.sh --helper dist/SimEnclave.app
           for p in packages/host-core packages/protocol/swift apps/helper tools/simenclavectl; do
             echo "== swift test: $p =="
             ( cd "$p" && xcrun swift test ) || exit 1

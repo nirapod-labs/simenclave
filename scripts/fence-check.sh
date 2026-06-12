@@ -1,24 +1,23 @@
 #!/usr/bin/env bash
-# The static fence assertions. The fence: a release build sets no
-# DYLD_INSERT_LIBRARIES and bundles no interposer dylib, so SimEnclave cannot
-# ship inside an app. This script asserts the repo side of that on every PR;
-# the runtime side (an unconfigured or uninjected app shows the stock
-# failing-SE behavior) is asserted by run-mechanism-d.sh on a Mac with a
-# simulator.
+# The static fence assertions. The safety property: the interposer can never run in a shipped app.
+# Three things guarantee it, none of which needs the interposer to be absent from the helper tool:
+#   - it is a simulator-slice binary, so dyld on a device refuses to load it;
+#   - a consuming app wires DYLD_INSERT_LIBRARIES only in a Debug scheme, never a release build;
+#   - the variable appears only in a reviewed allowlist.
+# This script asserts the repo side on every PR; the runtime side (an unconfigured or uninjected app
+# shows the stock failing-SE behavior) is asserted by run-mechanism-d.sh on a Mac with a simulator.
 #
 # Rules over tracked files:
-#   1. Any .xcscheme that carries DYLD_INSERT_LIBRARIES must launch the Debug
-#      build configuration. Any .xcconfig that sets it must be a debug config.
-#   2. No Xcode project artifact (project.yml, *.pbxproj, *.xcconfig, any
-#      Info.plist) references the interposer dylib. Bundling it is never
-#      legitimate, debug or release.
-#   3. DYLD_INSERT_LIBRARIES appears only in the allowlist below. A new
-#      reference fails until it is consciously added here, in review.
+#   1. Any .xcscheme that carries DYLD_INSERT_LIBRARIES must launch the Debug build configuration.
+#      Any .xcconfig that sets it must be a debug config. (Consuming apps inject debug-only.)
+#   2. No Xcode project artifact (project.yml, *.pbxproj, *.xcconfig, any Info.plist) wires the
+#      interposer dylib into a build. It is injected at run time, never linked by a consuming app.
+#   3. DYLD_INSERT_LIBRARIES appears only in the allowlist below.
 #
-# Bundle mode, for the release workflow once M5 builds a helper .app:
-#   fence-check.sh --bundle <path.app>
-#   Fails if the bundle contains an interposer dylib or sets the variable in
-#   its Info.plist LSEnvironment.
+# Bundle modes (macOS, for the release workflow):
+#   fence-check.sh --bundle <path.app>   a shipped consuming app: no interposer dylib, no variable.
+#   fence-check.sh --helper <path.app>   the helper: it carries the interposer, which must be a
+#                                        simulator-slice binary, and must not inject into itself.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -48,6 +47,35 @@ if [ "${1:-}" = "--bundle" ]; then
     fail "$VAR set in $PLIST LSEnvironment"
   fi
   [ "$FAIL" -eq 0 ] && echo "FENCE (bundle): ok"
+  exit "$FAIL"
+fi
+
+# --- helper mode -----------------------------------------------------------
+# The helper carries the interposer because it is the tool that injects it. That is safe only if the
+# payload can never run on a device, so assert it is a simulator-slice binary and that the helper
+# does not inject into itself.
+if [ "${1:-}" = "--helper" ]; then
+  BUNDLE="${2:-}"
+  [ -d "$BUNDLE" ] || { echo "usage: fence-check.sh --helper <path.app>" >&2; exit 2; }
+  command -v vtool >/dev/null || { echo "FENCE FAIL: --helper needs vtool (run on macOS)" >&2; exit 2; }
+  [ -x /usr/libexec/PlistBuddy ] || { echo "FENCE FAIL: --helper needs PlistBuddy (run on macOS)" >&2; exit 2; }
+  DYLIB="$(find "$BUNDLE" -name "*${DYLIB_NAME}*.dylib" 2>/dev/null | head -1)"
+  if [ -z "$DYLIB" ]; then
+    fail "the helper bundle carries no interposer, so it cannot inject: $BUNDLE"
+  else
+    # Every platform load command must be the iOS Simulator, so the payload cannot load on a device.
+    plats="$(vtool -show-build "$DYLIB" 2>/dev/null | awk '$1=="platform"{print $2}')"
+    if [ -z "$plats" ]; then
+      fail "could not read the interposer platform: $DYLIB"
+    elif printf '%s\n' "$plats" | grep -qvx 'IOSSIMULATOR'; then
+      fail "the interposer is not simulator-slice only (platforms: $(echo "$plats")): $DYLIB"
+    fi
+  fi
+  PLIST="$BUNDLE/Contents/Info.plist"
+  if [ -f "$PLIST" ] && /usr/libexec/PlistBuddy -c "Print :LSEnvironment" "$PLIST" 2>/dev/null | grep -q "$VAR"; then
+    fail "the helper injects into itself ($VAR in $PLIST LSEnvironment)"
+  fi
+  [ "$FAIL" -eq 0 ] && echo "FENCE (helper): ok (interposer is simulator-slice)"
   exit "$FAIL"
 fi
 
