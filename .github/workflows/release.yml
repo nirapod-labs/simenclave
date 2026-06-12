@@ -86,7 +86,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --title "SimEnclave $GITHUB_REF_NAME" \
+          # Prerelease tags (vX.Y.Z-...) publish as a prerelease, not the latest release.
+          pre=""; case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" $pre --title "SimEnclave $GITHUB_REF_NAME" \
             --notes-file out/notes.md \
             out/simenclave-*.tar.gz out/SimEnclave-*.zip out/SHA256SUMS out/CLEAR-QUARANTINE.txt
 
@@ -95,8 +97,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ver="${{ steps.package.outputs.ver }}"
-          url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
-          sha="$(curl -fsSL "$url" | shasum -a 256 | awk '{print $1}')"
+          # Point the formula at the release-attached tarball, the one SHA256SUMS covers, and reuse
+          # that published checksum, so the formula and SHA256SUMS pin the same byte-stable artifact.
+          tarball="simenclave-$ver.tar.gz"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${tarball}"
+          sha="$(awk -v f="./$tarball" '$2==f {print $1}' out/SHA256SUMS)"
+          [ -n "$sha" ] || { echo "no checksum for $tarball in SHA256SUMS"; exit 1; }
           sed -i.bak -E "s#  url \".*\"#  url \"$url\"#; s#  sha256 \".*\"#  sha256 \"$sha\"#" Formula/simenclave.rb
           rm -f Formula/simenclave.rb.bak
           git config user.name "nirapod-release"

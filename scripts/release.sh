@@ -16,8 +16,8 @@ die() { echo "release: $1" >&2; exit 1; }
 
 # --- guards -----------------------------------------------------------------
 [ -n "$NEW" ] || die "usage: scripts/release.sh <version>"
-printf '%s' "$NEW" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
-  || die "version must be semver MAJOR.MINOR.PATCH, got '$NEW'"
+printf '%s' "$NEW" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' \
+  || die "version must be semver MAJOR.MINOR.PATCH[-PRERELEASE], got '$NEW'"
 [ "$(git branch --show-current)" = "main" ] \
   || die "cut releases from main, not '$(git branch --show-current)'"
 git diff --quiet && git diff --cached --quiet || die "working tree is dirty; commit or stash first"

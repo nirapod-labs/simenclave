@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # curl -fsSL https://raw.githubusercontent.com/nirapod-labs/simenclave/main/scripts/install.sh | sh
 #
-# Build SimEnclave from source on this Mac and install it. Building locally means the binaries are
-# never quarantined (no Gatekeeper wall), and the Secure Enclave works under the ad-hoc signature.
-# Homebrew users get the same build from source: brew install nirapod-labs/simenclave/simenclave.
+# Build SimEnclave from source on this Mac and install it: the menu bar helper to /Applications and
+# the simenclavectl CLI to ~/.local/bin. Homebrew installs the same build: brew install
+# nirapod-labs/simenclave/simenclave.
 #
-# The source is cloned at a pinned tag (the latest release, or SIMENCLAVE_REF=<tag>); this script is
-# the only thing fetched over the network unpinned, and it pins everything it builds.
+# The source is cloned at a release tag (the latest release, or SIMENCLAVE_REF=<tag>). The tag is
+# validated to be a version tag before use, so the clone follows a published release, not a branch.
 set -euo pipefail
 
 REPO="nirapod-labs/simenclave"
@@ -23,6 +23,11 @@ if [ -z "$REF" ]; then
     | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)"
   [ -n "$REF" ] || die "no published release yet; pass SIMENCLAVE_REF=<tag> to build a specific tag"
 fi
+
+# Only follow a version tag (vX.Y.Z, optionally -prerelease). git clone --branch resolves a branch
+# or a tag, so this guard keeps the install pinned to a published release, not a moving branch.
+printf '%s' "$REF" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' \
+  || die "refusing to build '$REF': not a version tag (expected vX.Y.Z)"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
