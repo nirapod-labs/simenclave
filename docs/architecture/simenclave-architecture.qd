@@ -1,0 +1,378 @@
+.docname {SimEnclave Architecture}
+.docauthor {Nirapod Labs}
+.doctype {plain}
+.doclang {English}
+.theme {paperwhite} layout:{latex}
+
+.numbering
+    - headings: 1.1.1
+    - figures: 1.1
+    - tables: 1.1
+    - equations: (1)
+
+*A technical architecture reference, built by [Nirapod Labs](https://github.com/nirapod-labs).*
+
+.box {Abstract} type:{note}
+    The iOS Simulator has no Secure Enclave. SimEnclave gives a simulated app a real one
+    by intercepting its `SecKey` calls and relaying the Secure Enclave operations to the
+    host Mac's SEP coprocessor over an authenticated loopback channel. The simulated app
+    signs with genuine hardware P-256; the private key is generated inside the host SEP and
+    never crosses the wire. This document specifies the architecture: the interception layer,
+    the wire protocol, the host signer, the trust boundary, and the safety fence that makes
+    the tool unable to follow code into production.
+
+.tableofcontents maxdepth:{2}
+
+.pagebreak
+
+# The problem
+
+A hardware-backed key is defined by one property: the private scalar never leaves the secure
+coprocessor. On Apple hardware that coprocessor is the Secure Enclave Processor (SEP), reached
+through the `SecKey` C API with the token id `kSecAttrTokenIDSecureEnclave`. The Simulator runs
+as an ordinary macOS process and exposes no SEP, so a key created with that token id fails. The
+one code path you most want to exercise on every change, the hardware signing path, is exactly
+the path the Simulator cannot run.
+
+Let $ \mathcal{O}_{SE} $ be the set of Secure Enclave operations an app issues (key generation,
+signing, public-key export, keychain placement of an SE-backed key). On a device, every
+$ o \in \mathcal{O}_{SE} $ resolves against the SEP. In the Simulator, every $ o $ fails closed.
+SimEnclave restores the mapping by redirecting each $ o $ to the host SEP while leaving every
+non-SE call untouched:
+
+$$$
+\text{route}(o) =
+\begin{cases}
+\text{host SEP}  & \text{if } o \in \mathcal{O}_{SE} \\
+\text{passthrough} & \text{otherwise}
+\end{cases}
+$$$
+
+The design constraint is **faithfulness**: the app's bytes, error codes, and signatures must be
+identical to a device, so the same source runs unchanged in both places. SimEnclave adds nothing
+of its own to a signature and canonicalizes nothing.
+
+# System architecture
+
+Three deployables and one shared contract span two address spaces: the simulated **guest** process
+and the host **helper** process. The interposer lives inside the guest; the helper owns the SEP key
+and serves requests over loopback.
+
+.mermaid caption:{The two address spaces and the path of a Secure Enclave operation.}
+    flowchart LR
+        subgraph SIM["iOS Simulator process (guest)"]
+            APP["App code\nSecKeyCreateSignature"]
+            HOOK["Interposer (C dylib)\nDobby inline hooks"]
+            REG["Shadow-ref registry\nSecKeyRef → handle, pubkey"]
+            CLI["Loopback client\nlength-prefixed CBOR"]
+            APP --> HOOK
+            HOOK --> REG
+            HOOK --> CLI
+        end
+        subgraph HOST["macOS host process (helper)"]
+            SRV["Loopback server\ntoken-authenticated"]
+            ROUTE["Request router"]
+            CORE["host-core\nSecKey C API"]
+            SEP["Secure Enclave (SEP)\nprivate key d stays put"]
+            SRV --> ROUTE --> CORE --> SEP
+        end
+        CLI ==>|"127.0.0.1 : port\nframe = len ‖ CBOR"| SRV
+        SEP -. "handle, Q, (r,s)" .-> CORE
+        CORE -. reply .-> CLI
+
+The guest never holds a private key. What crosses the boundary is a handle, a public key $ Q $, a
+digest $ e $, and a signature $ (r, s) $, which is exactly the contract an app already has with the
+SEP on a real device.
+
+.row alignment:{spacebetween} gap:{1cm}
+    .container border:{gray} borderwidth:{1px} padding:{12px} radius:{6px}
+        **`packages/interpose`** (C)
+        The injected dylib. Inline-hooks the `SecKey` and `SecItem` C API, redirects SE
+        operations, passes everything else through.
+
+    .container border:{gray} borderwidth:{1px} padding:{12px} radius:{6px}
+        **`apps/helper`** (Swift)
+        The menu bar app. Owns the SEP key, authenticates the channel, arms simulators,
+        answers requests.
+
+    .container border:{gray} borderwidth:{1px} padding:{12px} radius:{6px}
+        **`packages/protocol`**
+        One spec, two byte-identical codecs: Swift for the helper, C for the interposer.
+
+# Trust model and the channel
+
+The channel is a TCP socket bound to the loopback address `127.0.0.1`, authenticated by a
+per-session capability **token**. Loopback binding means only processes on the same host can
+connect; the token means only a process that can read the helper's per-user state directory can
+speak the protocol.
+
+Let the token be a uniformly random $ b $-bit value, $ b = 256 $. An attacker who can reach the socket
+but cannot read the token must guess it. Over $ q $ attempts the success probability is bounded by
+
+$$$
+\Pr[\text{forge}] \le \frac{q}{2^{b}} = \frac{q}{2^{256}}
+$$$
+
+which is negligible for any feasible $ q $. The token is therefore not the real boundary; the real
+boundary is **local process identity**. A process that can read the token already runs as the
+developer, which is full host compromise and out of scope for a development tool.
+
+.box {Threat boundary} type:{warning}
+    In scope: another local process probing the loopback port without the token; a malformed or
+    hostile frame from the guest; an attacker-influenced app name or icon in a `HELLO`.
+    Out of scope: an adversary already executing as the developer's user, who by definition owns
+    the SEP session and the keychain regardless of SimEnclave.
+
+Hostile input from the guest is handled by treating every framed message as untrusted: the codec
+rejects duplicate keys, non-canonical integers, oversized payloads, and trailing bytes; display
+strings are length-clamped and stripped of control characters; an icon is validated as a real PNG
+under a hard byte cap before the helper renders it.
+
+# The interposer
+
+The Secure Enclave cannot be a registered provider. A camera can be a virtual device the OS
+enumerates, but the SEP is reached through a reserved token id that no third party may claim. The
+only way in is to intercept the call inside the guest process. SimEnclave uses **inline hooking**:
+it patches the resolved function in memory so the call lands on a replacement.
+
+For an original symbol $ f $, the hook installs a trampoline $ t_f $ that preserves a callable copy of
+the original. The effective behavior becomes a branch on the call's arguments:
+
+$$$
+\hat{f}(x) =
+\begin{cases}
+\text{relay}_f(x) & \text{if } x \text{ targets the Secure Enclave} \\
+f(x)              & \text{otherwise (passthrough)}
+\end{cases}
+$$$
+
+Inline hooking is chosen over symbol rebinding because it is independent of the symbol-binding
+format, and the hook backend (Dobby) sits behind a seam so no single library is load-bearing. The
+hooked surface is the set of `SecKey` and `SecItem` entry points an SE-using app touches:
+
+| Hooked symbol | Relayed operation | Passthrough when |
+|---|---|---|
+| `SecKeyCreateRandomKey` | `GENERATE` in the host SEP | not an SE token request |
+| `SecKeyCreateSignature` | `SIGN` (digest relay) | key is not SE-backed |
+| `SecKeyCopyPublicKey` | served from the shadow registry | non-SE key |
+| `SecItemAdd` / `SecItemCopyMatching` | tag-namespaced SE key records | non-SE query |
+| `SecItemUpdate` / `SecItemDelete` | re-tag / remove SE record | non-SE item |
+
+Each hooked create returns an opaque `SecKeyRef` that the **shadow-ref registry** maps to a host
+`handle` and the exported public key, so later calls resolve without another round trip. A key the
+interposer did not mint is never claimed; the registry fails closed.
+
+# The wire protocol
+
+The wire is length-prefixed CBOR. Each message is a 4-byte big-endian length followed by exactly
+that many bytes of a canonical CBOR map. Reading is therefore deterministic: read 4, decode the
+length $ L $, read $ L $.
+
+.mermaid caption:{Frame layout. The prefix makes message boundaries explicit over a byte stream.}
+    flowchart LR
+        P["length prefix\n4 bytes, big-endian"] --> B["CBOR map\nL bytes"]
+        B --> P2["length prefix\n4 bytes"] --> B2["CBOR map\n…"]
+
+For a payload of $ L $ bytes the frame on the wire is $ 4 + L $ bytes, and a stream of $ m $ messages
+with payloads $ L_1, \dots, L_m $ occupies
+
+$$$
+S = \sum_{i=1}^{m} \bigl(4 + L_i\bigr) = 4m + \sum_{i=1}^{m} L_i
+$$$
+
+bytes, with the per-message 4-byte cost the only framing overhead. The 32-bit prefix bounds a
+single payload at $ L < 2^{32} $ bytes; the helper enforces a far smaller cap to reject oversized
+frames early.
+
+Maps are **integer-keyed**, not string-keyed, so the contract is compact and stable across the two
+codecs. A `HELLO`, for example, carries the operation, protocol version, the calling app's bundle
+id (key 14), and its display name (key 28). Because both codecs are written to the same spec and
+checked against each other, they are byte-identical oracles: a fuzz vector that one accepts the
+other must accept, and bit-for-bit.
+
+.box {Codec parity} type:{tip}
+    The Swift codec (helper) and the C codec (interposer) are not merely compatible; they encode
+    the same logical message to the same bytes. Parity is a test invariant, not a hope.
+
+# The host signer and the Secure Enclave
+
+The helper drives the SEP through the same `SecKey` C API an app would use on a device. Keys are
+P-256 (NIST secp256r1): the curve
+
+$$$
+E : y^2 \equiv x^3 + ax + b \pmod{p}, \qquad p = 2^{256} - 2^{224} + 2^{192} + 2^{96} - 1
+$$$
+
+with a base point $ G $ of prime order $ n $. A key pair is a private scalar $ d \in [1, n-1] $ held in
+the SEP and a public point $ Q = dG $ exported to the guest. The scalar $ d $ is generated inside the
+enclave and is never exported, so it is absent from every wire message by construction.
+
+Signing is a pure relay. The guest sends the digest $ e $ (and the algorithm); the SEP computes,
+for a per-signature nonce $ k \in [1, n-1] $,
+
+$$$
+R = kG = (x_R, y_R), \qquad r = x_R \bmod n, \qquad s = k^{-1}\,(e + r\,d) \bmod n
+$$$
+
+and returns the signature $ (r, s) $. A verifier with $ Q $ recovers the point and checks the first
+coordinate:
+
+$$$
+u_1 = e\,s^{-1} \bmod n, \quad u_2 = r\,s^{-1} \bmod n, \qquad r \overset{?}{\equiv} x\bigl(u_1 G + u_2 Q\bigr) \bmod n
+$$$
+
+Because $ d $ appears only inside the SEP's computation of $ s $, the wire reveals nothing about it:
+the mutual information between any transcript $ \mathcal{T} = \{e, (r,s), Q, \text{handle}\} $ and the
+private scalar is $ I(d ; \mathcal{T}) = 0 $ beyond what $ Q = dG $ already commits to publicly. The
+signature SimEnclave returns verifies identically against any P-256 verifier, on device or in the
+Simulator.
+
+Within a session the helper keys live in an in-memory registry indexed by `handle`. A *permanent*
+key additionally registers under a tag namespaced by the simulator UDID and the calling app's
+bundle id, so two apps on one simulator stay isolated exactly as two apps on one device do:
+
+$$$
+\text{tagkey} = \texttt{udid} \,\Vert\, \texttt{appID} \,\Vert\, \texttt{appTag}
+$$$
+
+# The end-to-end signing path
+
+A single `SecKeyCreateSignature` in the guest becomes a hooked call, a framed request, a hardware
+operation, and a framed reply.
+
+.mermaid caption:{One signature, from guest call to hardware and back.}
+    sequenceDiagram
+        autonumber
+        participant App as App (guest)
+        participant Hook as Interposer
+        participant Helper as Helper (host)
+        participant SEP as Secure Enclave
+        App->>Hook: SecKeyCreateSignature(key, algo, digest)
+        Note over Hook: resolve SecKeyRef → handle (shadow registry)
+        Hook->>Helper: frame(SIGN: handle, algo, digest)
+        Helper->>Helper: authenticate token, decode CBOR
+        Helper->>SEP: sign(handle, digest)
+        SEP-->>Helper: (r, s), d never leaves
+        Helper-->>Hook: frame(signature)
+        Hook-->>App: CFData signature
+
+Every step but the hardware operation is constant work. The private key is touched only inside the
+SEP, in the rightmost lane, and what returns to the guest is the same `(r, s)` an app receives on a
+device.
+
+# The fence
+
+The fence is the property that makes SimEnclave a tool that cannot ship. It is not a promise in
+prose; it is a structural fact plus a checked invariant.
+
+Let $ \textsf{Loads}(P) $ be the event that the interposer loads into process $ P $. Loading requires
+two independent conditions:
+
+$$$
+\textsf{Loads}(P) \iff \textsf{Sim}(P) \;\wedge\; \textsf{Inject}(P)
+$$$
+
+where $ \textsf{Sim}(P) $ holds only if $ P $ is a Simulator process, and $ \textsf{Inject}(P) $ holds
+only if `DYLD_INSERT_LIBRARIES` names the dylib in $ P $'s environment.
+
+.grid columns:{2} gap:{1cm}
+    .box {Structural: it is simulator-only} type:{note}
+        The dylib's Mach-O platform is iOS-Simulator. dyld on a real device refuses a
+        simulator-slice binary, so $ \textsf{Sim}(P) = \text{false} $ on hardware no matter where the
+        file sits. The payload physically cannot run on a device.
+
+    .box {Configural: it is debug-only} type:{note}
+        A consuming app wires `DYLD_INSERT_LIBRARIES` only in a Debug scheme. A release or archive
+        build sets it nowhere, so $ \textsf{Inject}(P) = \text{false} $ for any production build. On a
+        device, library validation blocks the injection regardless.
+
+For any production build $ P_{\text{prod}} $ both conjuncts fail, so
+
+$$$
+\textsf{Sim}(P_{\text{prod}}) = \text{false} \;\wedge\; \textsf{Inject}(P_{\text{prod}}) = \text{false}
+\;\implies\; \textsf{Loads}(P_{\text{prod}}) = \text{false}
+$$$
+
+CI proves the repo side of this on every change. The static fence asserts that any scheme carrying
+the variable is Debug-only, that no Xcode project links the dylib into a build, and that the
+variable appears only in a reviewed allowlist. The helper carries the interposer because it is the
+tool that injects it; the release check asserts that payload is simulator-slice, so the only binary
+the tool ships can never run anywhere but the Simulator.
+
+.mermaid caption:{The fence as a decision: a load survives only the Simulator-and-debug path.}
+    flowchart TD
+        START([dyld asked to load the interposer]) --> Q1{Simulator-slice\nplatform?}
+        Q1 -- "no (device)" --> REJ1[/dyld refuses: wrong platform/]
+        Q1 -- yes --> Q2{DYLD_INSERT set\nby a Debug scheme?}
+        Q2 -- "no (release)" --> REJ2[/nothing to load/]
+        Q2 -- yes --> LOAD([interposer active in the Simulator])
+        REJ1 --> END([cannot reach production])
+        REJ2 --> END
+
+# Automatic arming
+
+The helper arms every booted simulator the way SimCam bridges the camera: it sets the injection
+variables in the simulator's `launchd` environment, so any app launched afterward inherits the
+interposer with no per-project wiring.
+
+.mermaid caption:{Arming lifecycle. Apps launched while armed inherit the injection.}
+    stateDiagram-v2
+        [*] --> Idle
+        Idle --> Armed: helper opens\nset DYLD_INSERT, PORT, TOKEN
+        Armed --> Armed: app launches → injected
+        Armed --> Idle: helper quits\nunset env
+        Armed --> [*]: simulator shuts down
+
+The three variables it sets are the loader path, the helper port, and the capability token:
+`DYLD_INSERT_LIBRARIES`, `SIMENCLAVE_PORT`, `SIMENCLAVE_TOKEN`. Apps already running are not
+retroactively injected; the helper is opened before the app, exactly like SimCam.
+
+# A cost model
+
+Signing through SimEnclave is the same hardware operation as on a device plus a fixed software
+envelope. Decompose the wall-clock cost of one signature:
+
+$$$
+T_{\text{sign}} = T_{\text{hook}} + T_{\text{enc}} + T_{\text{ipc}} + T_{\text{sep}} + T_{\text{dec}}
+$$$
+
+$ T_{\text{sep}} $ is the real SEP operation and is identical to a device. The added envelope over a
+device is the interposition and one loopback round trip, $T_{\text{hook}} + T_{\text{ipc}} +
+T_{\text{enc}} + T_{\text{dec}}$, all constant and bounded by the codec and a localhost socket. The
+chart below is an illustrative budget (relative units, not a measurement) showing that the hardware
+term dominates and the bridge adds a small constant.
+
+.xychart bars:{yes} x:{Cost component} y:{Relative units}
+    - 2
+    - 3
+    - 4
+    - 20
+    - 3
+
+Reading the bars left to right: hook dispatch, request encode, loopback transit, the SEP operation,
+and reply decode. The fourth bar, the hardware signature, is the term you actually came for; the
+rest is the price of putting it in the Simulator.
+
+.pagebreak
+
+# Summary
+
+SimEnclave is a faithful redirect, not a reimplementation. It hooks the guest's `SecKey` surface,
+frames each Secure Enclave operation as length-prefixed CBOR, and relays it to the host SEP, where
+the private scalar is generated and stays. The wire carries only what a device wire carries, the
+signatures verify identically, and the interposer is a simulator-only binary wired in debug only, so
+it cannot follow the code into production. The result is the one development affordance the
+Simulator never had: real hardware-backed signing, where you write the code.
+
+# Colophon
+
+SimEnclave is built by **[Nirapod Labs](https://github.com/nirapod-labs)**. It came out of building
+Nirapod, a non-custodial wallet whose security rests on keys that live in hardware and never leave
+it. That signing path, the one you most want to exercise on every change, is the one the Simulator
+could not run, so we built the tool we wanted, then opened it.
+
+.box type:{tip}
+    **Nirapod Labs** · [github.com/nirapod-labs/simenclave](https://github.com/nirapod-labs/simenclave) · Apache-2.0
+
+    This document is written in [Quarkdown](https://quarkdown.com) and compiles from
+    `docs/architecture/simenclave-architecture.qd`.
