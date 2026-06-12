@@ -9,8 +9,8 @@
 class Simenclave < Formula
   desc "Give the iOS Simulator a real hardware Secure Enclave"
   homepage "https://github.com/nirapod-labs/simenclave"
-  url "https://github.com/nirapod-labs/simenclave/releases/download/v1.0.0/simenclave-1.0.0.tar.gz"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  url "https://github.com/nirapod-labs/simenclave/releases/download/v1.0.0-beta/simenclave-1.0.0-beta.tar.gz"
+  sha256 "413d7eb3c3848d4082cc94f9fb06641edc08a1a486d105f964efb8f5fdc09c25"
   license "Apache-2.0"
 
   depends_on xcode: ["16.0", :build]
