@@ -22,6 +22,14 @@ final class JSONValueTests: XCTestCase {
         XCTAssertEqual(JSONValue.string("a\"b\\c\nd").encoded(), #""a\"b\\c\nd""#)
     }
 
+    func testArrayEncodesNestedValues() {
+        let value = JSONValue.object([
+            ("count", .int(2)),
+            ("keys", .array([.string("a"), .object([("handle", .string("b"))])])),
+        ])
+        XCTAssertEqual(value.encoded(), #"{"count": 2, "keys": ["a", {"handle": "b"}]}"#)
+    }
+
     func testControlCharactersAreUnicodeEscaped() {
         // A raw control character must come back as a \u00XX escape, never literal.
         let encoded = JSONValue.string("\u{01}").encoded()
