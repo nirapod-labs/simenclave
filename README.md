@@ -21,7 +21,11 @@ SimEnclave gives the iOS Simulator a real Secure Enclave. It injects a small int
 It exists because the iOS Simulator has no Secure Enclave. That means the one thing hardware-backed signing depends on, a key that never leaves the chip, can't run where you develop all day. So every change to a signing path forces you onto a physical device. SimEnclave fixes that without weakening the security property and without ever becoming something that could ship.
 
 <p align="center">
-  <video src="https://github.com/nirapod-labs/simenclave/raw/main/assets/github/showcase.mp4" width="830" controls></video>
+  <a href="https://github.com/nirapod-labs/simenclave/blob/main/assets/github/showcase.mp4">
+    <img src="assets/github/showcase-poster.jpg" width="830" alt="Watch the SimEnclave demo">
+  </a>
+  <br>
+  <a href="https://github.com/nirapod-labs/simenclave/blob/main/assets/github/showcase.mp4">▶ Watch the demo</a>
 </p>
 
 ## How it works
@@ -35,10 +39,6 @@ simulated app  ──SecKey──▶  interposer  ──loopback──▶  helpe
 ```
 
 The app's code doesn't change. The same `SecKeyCreateSignature` that hits the SEP on a device hits the SEP through SimEnclave in the Simulator, and the signature it returns verifies identically against any P-256 verifier. Every keychain or crypto call that isn't a Secure Enclave operation passes straight through, untouched.
-
-<p align="center">
-  <img alt="The SimEnclave helper in the menu bar" src="assets/menubar/preview-in-menubar.png" width="540">
-</p>
 
 ## It can't ship
 
