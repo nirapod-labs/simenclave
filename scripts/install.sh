@@ -2,8 +2,8 @@
 # curl -fsSL https://raw.githubusercontent.com/nirapod-labs/simenclave/main/scripts/install.sh | sh
 #
 # Build SimEnclave from source on this Mac and install it: the menu bar helper to /Applications and
-# the simenclavectl CLI to ~/.local/bin. Homebrew installs the same build: brew install
-# nirapod-labs/simenclave/simenclave.
+# the simenclavectl CLI to ~/.local/bin. Homebrew installs the same build from source; see the
+# README for the tap command.
 #
 # The source is cloned at a release tag (the latest release, or SIMENCLAVE_REF=<tag>). The tag is
 # validated to be a version tag before use, so the clone follows a published release, not a branch.

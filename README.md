@@ -57,7 +57,8 @@ Both generate keys, sign, verify, and manage keychain items against the same hos
 ## Install
 
 ```sh
-brew install nirapod-labs/simenclave/simenclave
+brew tap nirapod-labs/simenclave https://github.com/nirapod-labs/simenclave
+brew install simenclave
 ```
 
 Or without Homebrew:
