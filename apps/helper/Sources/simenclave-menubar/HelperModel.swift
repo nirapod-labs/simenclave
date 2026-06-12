@@ -283,10 +283,18 @@ final class HelperModel {
     /// Walk up from the running binary to the repo's built simulator interposer, so the
     /// copied scheme environment carries a real path in a dev checkout.
     private static func interposerDylib() -> String? {
+        let name = "simenclave-interpose.dylib"
+        // Shipped: the interposer is bundled in the helper .app's Resources. It is a
+        // simulator-slice binary, so it can only load into a simulator process, never a device.
+        if let bundled = Bundle.main.resourceURL?.appendingPathComponent(name),
+           FileManager.default.fileExists(atPath: bundled.path) {
+            return bundled.path
+        }
+        // Dev: built into the source tree by `make dylib`, found by walking up from the executable.
         var dir = URL(fileURLWithPath: CommandLine.arguments[0])
             .resolvingSymlinksInPath().deletingLastPathComponent()
         for _ in 0 ..< 10 {
-            let candidate = dir.appendingPathComponent("build-sim/bin/simenclave-interpose.dylib")
+            let candidate = dir.appendingPathComponent("build-sim/bin/\(name)")
             if FileManager.default.fileExists(atPath: candidate.path) { return candidate.path }
             dir = dir.deletingLastPathComponent()
         }

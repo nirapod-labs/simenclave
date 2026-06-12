@@ -65,6 +65,16 @@ cp "$REPO/apps/helper/Resources/fonts/DMSans-Medium.ttf" "$APP/Contents/Resource
 cp "$REPO/apps/helper/Resources/fonts/DMSans-Bold.ttf" "$APP/Contents/Resources/DMSans-Bold.ttf"
 cp "$REPO/apps/helper/Resources/fonts/OFL.txt" "$APP/Contents/Resources/DMSans-OFL.txt"
 
+# Bundle the interposer the helper injects. It is a simulator-slice binary (it cannot load on a
+# device), and a consuming app loads it only through a debug-scheme DYLD_INSERT, so carrying it
+# inside the tool cannot put it into a shipped app. Built and signed before the bundle is sealed.
+command -v cmake >/dev/null || { echo "cmake is required to build the interposer: brew install cmake"; exit 1; }
+echo "building the interposer (sim slice)..."
+( cd "$REPO" && make dylib ) || { echo "failed to build the interposer"; exit 1; }
+cp "$REPO/build-sim/bin/simenclave-interpose.dylib" "$APP/Contents/Resources/simenclave-interpose.dylib"
+codesign -s "$SIGN_ID" --force --timestamp=none "$APP/Contents/Resources/simenclave-interpose.dylib" >/dev/null 2>&1 \
+  || { echo "codesign failed for the interposer"; exit 1; }
+
 codesign -s "$SIGN_ID" --force --timestamp=none "$APP" >/dev/null 2>&1 \
   || { echo "codesign failed for identity '$SIGN_ID'"; exit 1; }
 

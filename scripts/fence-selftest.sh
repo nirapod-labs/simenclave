@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Self-test for the bundle-mode fence (scripts/fence-check.sh --bundle), the gate
-# the release workflow runs on the built .app. It plants each violation a shipped
-# app must never carry and asserts the fence FAILS, then a clean bundle and asserts
-# it PASSES. A fence that only ever passes proves nothing; this proves it catches a
-# bundled interposer and an injection-setting Info.plist.
+# Self-test for the fence bundle modes (scripts/fence-check.sh --bundle and --helper), the gates the
+# release workflow runs on built bundles. For --bundle (a shipped consuming app) it plants each
+# violation the app must never carry and asserts the fence FAILS, then a clean bundle PASSES. For
+# --helper (the tool) it asserts a bundle with no interposer or a non-simulator-slice payload FAILS,
+# and the real simulator-slice interposer PASSES. A fence that only ever passes proves nothing.
 #
 # macOS only: the LSEnvironment assertion needs PlistBuddy, and the release lane
 # that runs the bundle fence is macOS.
@@ -73,6 +73,32 @@ expect 1 "injection in Info.plist LSEnvironment fails" -- --bundle "$TMP/Inject.
 
 # 4. A nonexistent bundle is a usage error, not a silent pass.
 expect 2 "missing bundle is a usage error" -- --bundle "$TMP/Nope.app"
+
+# 5. Helper mode: a bundle with no interposer cannot inject, so it fails.
+nohelper="$TMP/NoInterposer.app/Contents"
+mkdir -p "$nohelper/Resources"
+write_clean_plist "$nohelper/Info.plist"
+expect 1 "helper bundle without an interposer fails" -- --helper "$TMP/NoInterposer.app"
+
+# 6. Helper mode rejects a payload it cannot prove is simulator-slice (here, a non-Mach-O file).
+fakehelper="$TMP/FakeInterposer.app/Contents"
+mkdir -p "$fakehelper/Resources"
+write_clean_plist "$fakehelper/Info.plist"
+echo "not a mach-o" >"$fakehelper/Resources/simenclave-interpose.dylib"
+expect 1 "helper bundle with a non-simulator-slice interposer fails" -- --helper "$TMP/FakeInterposer.app"
+
+# 7. Helper mode passes with the real simulator-slice interposer. Needs the built dylib
+#    (make dylib / make build); skipped if it has not been built yet.
+real="$REPO/build-sim/bin/simenclave-interpose.dylib"
+if [ -f "$real" ]; then
+  okhelper="$TMP/Helper.app/Contents"
+  mkdir -p "$okhelper/Resources"
+  write_clean_plist "$okhelper/Info.plist"
+  cp "$real" "$okhelper/Resources/simenclave-interpose.dylib"
+  expect 0 "helper bundle with the simulator-slice interposer passes" -- --helper "$TMP/Helper.app"
+else
+  echo "skip: helper-mode pass case (build the interposer with 'make dylib' to cover it)"
+fi
 
 if [ "$fails" -eq 0 ]; then
   echo "FENCE SELFTEST: ok"

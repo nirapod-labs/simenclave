@@ -39,9 +39,9 @@ The app's code doesn't change. The same `SecKeyCreateSignature` that hits the SE
 
 ## It can't ship
 
-This is a development tool, and the fact that it can never reach production is enforced in code, not promised in prose. The interposer loads exactly one way: through `DYLD_INSERT_LIBRARIES`, set in the debug Simulator scheme. A release build bundles no interposer and sets no variable, so there's nothing to load.
+This is a development tool, and the fact that it can never reach production is enforced in code, not promised in prose. The interposer is a simulator-slice binary: dyld on a real device refuses to load it, so it can only run inside a Simulator. It reaches your app exactly one way, through `DYLD_INSERT_LIBRARIES` set in a debug Simulator scheme. A release build of your app sets no variable and references nothing, and on a device iOS library validation blocks the injection anyway, so there's nothing to load.
 
-That's checked on every PR and push. A static fence (`scripts/fence-check.sh`) asserts that any scheme carrying the variable launches the Debug configuration, that no project artifact references the interposer dylib, and that the variable appears only in a reviewed allowlist. A runtime fence asserts that an uninjected app and an injected-but-unconfigured app both show the same stock failing-Secure-Enclave behavior, which proves the app has no dependency on the tool. And the release workflow scans the built `.app` and fails if the dylib or the variable is anywhere inside it.
+That's checked on every PR and push. A static fence (`scripts/fence-check.sh`) asserts that any scheme carrying the variable launches the Debug configuration, that no Xcode project wires the dylib into a build, and that the variable appears only in a reviewed allowlist. A runtime fence asserts that an uninjected or unconfigured app shows the same stock failing-Secure-Enclave behavior, which proves the app has no dependency on the tool. The helper carries the interposer because it is the tool that injects it; the release workflow asserts that payload is simulator-slice, so the only binary it ships can never run anywhere but the Simulator.
 
 Read [SECURITY.md](SECURITY.md) before forming an opinion about the whole thing. It's short, and it changes how the tool should be read.
 
