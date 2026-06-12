@@ -9,10 +9,24 @@ name: fence
 # Mac with a simulator and is asserted by run-mechanism-d.sh on the hardware
 # lane. The release workflow runs this same check before packaging.
 
+# Skips pure-prose changes: the fence scans project artifacts and schemes, so a change to only docs,
+# license text, or assets cannot affect it. workflow_dispatch runs it unfiltered on demand.
 on:
   pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "LICENSE"
+      - "NOTICE"
+      - "docs/**"
+      - "assets/**"
   push:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "LICENSE"
+      - "NOTICE"
+      - "docs/**"
+      - "assets/**"
   workflow_dispatch:
 
 permissions:

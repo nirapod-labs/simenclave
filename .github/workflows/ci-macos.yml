@@ -6,10 +6,31 @@ name: ci-macos
 # portable codec ctest runs from the C side. The real-SEP suite and the mechanism
 # harnesses (which sign in the SEP) are the self-hosted hardware lane (ci-hardware).
 
+# Path-filtered: this lane is the slow one (a hosted macOS runner builds both slices, the helper, and
+# runs the swift suites), so it runs only when code it actually builds or tests changes. A docs-only,
+# JS-only, or asset-only change skips it; the required commitlint check still gates those PRs.
 on:
   pull_request:
+    paths:
+      - "packages/**"
+      - "apps/**"
+      - "tools/**"
+      - "CMakeLists.txt"
+      - "**/CMakeLists.txt"
+      - "Makefile"
+      - "scripts/**"
+      - ".github/workflows/ci-macos.yml"
   push:
     branches: [main]
+    paths:
+      - "packages/**"
+      - "apps/**"
+      - "tools/**"
+      - "CMakeLists.txt"
+      - "**/CMakeLists.txt"
+      - "Makefile"
+      - "scripts/**"
+      - ".github/workflows/ci-macos.yml"
 
 permissions:
   contents: read

@@ -15,7 +15,8 @@
         "tests",
         "ci",
         "repo",
-        "docs"
+        "docs",
+        "release"
       ]
     ],
     "subject-max-length": [2, "always", 50]

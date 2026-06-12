@@ -1,0 +1,21 @@
+name: commitlint
+
+# Conventional-commit check on every PR, no path filter: a contributor's commit messages are worth
+# validating whatever files the PR touches. This is the required status check on main. The squash
+# subject on push is not re-linted (GitHub appends " (#N)", which can trip subject-max-length even
+# when every PR commit passed); the build, lint, and fence lanes carry the push trigger instead.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: wagoid/commitlint-github-action@v6

@@ -3,12 +3,16 @@
 # a bare executable) is what MenuBarExtra needs to render reliably and what SMAppService
 # needs for launch at login. SIGN_ID defaults to ad-hoc; pass a keychain identity for a
 # named local build. The notarized, distributable bundle is M5; this is the dev bundle.
-set -uo pipefail
+set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 SIGN_ID="${SIGN_ID:--}"
 APP="$REPO/dist/SimEnclave.app"
+# The single version source. CFBundleShortVersionString must be a dotted-numeric string, so a
+# prerelease tag (1.0.0-beta) is trimmed to its numeric core (1.0.0) for the plist.
+VERSION="$(cat "$REPO/VERSION" 2>/dev/null || echo 0.0.0)"
+SHORT_VERSION="${VERSION%%-*}"
 
 echo "building simenclave-menubar (release)..."
 ( cd "$REPO/apps/helper" && xcrun swift build -c release --product simenclave-menubar ) || exit 1
@@ -18,7 +22,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/SimEnclave"
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -30,7 +34,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleIconFile</key><string>simenclave</string>
   <key>CFBundleIconName</key><string>simenclave</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleShortVersionString</key><string>$SHORT_VERSION</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
