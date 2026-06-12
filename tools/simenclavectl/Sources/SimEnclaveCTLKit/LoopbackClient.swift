@@ -43,11 +43,12 @@ public struct LoopbackClient {
     }
 
     /// Send one request and return the decoded response, opening and closing a
-    /// fresh connection for the exchange.
-    public func send(_ request: Request) throws -> Response {
+    /// fresh connection for the exchange. `appID` scopes the ops that namespace by
+    /// app (list-keys, find-by-tag), the way an injected app's bundle id does.
+    public func send(_ request: Request, appID: String? = nil) throws -> Response {
         let descriptor = try openConnection()
         defer { close(descriptor) }
-        try writeAll(descriptor, Framing.frame(Wire.encode(request, token: token)))
+        try writeAll(descriptor, Framing.frame(Wire.encode(request, token: token, appID: appID)))
         let length = try Framing.payloadLength(try readExactly(descriptor, count: 4))
         return try Wire.decodeResponse(try readExactly(descriptor, count: length))
     }

@@ -11,6 +11,7 @@ public enum JSONValue: Equatable {
     case int(Int)
     case bool(Bool)
     case null
+    case array([JSONValue])
     case object([(String, JSONValue)])
 
     /// The compact JSON encoding, keys in the order they were given.
@@ -20,6 +21,8 @@ public enum JSONValue: Equatable {
         case let .int(value): return String(value)
         case let .bool(value): return value ? "true" : "false"
         case .null: return "null"
+        case let .array(items):
+            return "[\(items.map { $0.encoded() }.joined(separator: ", "))]"
         case let .object(pairs):
             let body = pairs.map { "\(Self.quote($0.0)): \($0.1.encoded())" }.joined(separator: ", ")
             return "{\(body)}"

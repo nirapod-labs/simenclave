@@ -79,6 +79,9 @@ HITS="$(git ls-files 'project.yml' '*/project.yml' '*.pbxproj' '*.xcconfig' '*In
 
 # --- rule 3: the injection variable stays inside the allowlist -------------
 # scripts/set-scheme-env.sh   the developer-facing injection precursor
+# tools/simenclavectl/        the CLI: `simenclavectl init` prints the same scheme
+#   environment for a developer to paste into a debug scheme. It only prints; it
+#   wires no injection, and rule 2 still forbids bundling the dylib.
 # scripts/fence-check.sh      this script
 # scripts/fence-selftest.sh   the bundle-fence self-test; builds violation fixtures
 #   (an Info.plist that sets the variable) in a temp dir to prove the fence catches
@@ -96,6 +99,7 @@ HITS="$(git ls-files 'project.yml' '*/project.yml' '*.pbxproj' '*.xcconfig' '*In
 allowed() {
   case "$1" in
     scripts/set-scheme-env.sh) return 0 ;;
+    tools/simenclavectl/*) return 0 ;;
     scripts/fence-check.sh) return 0 ;;
     scripts/fence-selftest.sh) return 0 ;;
     packages/interpose/tests/*) return 0 ;;
