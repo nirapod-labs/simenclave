@@ -23,7 +23,8 @@ C_FILES    := $(shell find packages/interpose/src packages/interpose/include pac
                             -type f \( -name '*.c' -o -name '*.h' \) 2>/dev/null)
 
 .PHONY: help bootstrap configure build dylib helper test test-portable \
-        fence docs sign release mechanism-c mechanism-d cryptokit-probe lint format clean
+        fence docs sign release mechanism-c mechanism-d mechanism-d-watchos \
+        cryptokit-probe lint format clean
 
 help: ## Show targets
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-14s %s\n", $$1, $$2}'
@@ -87,6 +88,9 @@ mechanism-c: ## Host integration proof: hooks route to the helper, signature ver
 
 mechanism-d: ## Simulator integration proof (M0 exit criterion): in-sim signature verifies
 	bash packages/interpose/tests/run-mechanism-d.sh
+
+mechanism-d-watchos: ## watchOS Simulator integration proof: in-sim signature verifies (needs the watchOS runtime)
+	bash packages/interpose/tests/run-mechanism-d-watchos.sh
 
 cryptokit-probe: ## Probe: CryptoKit SecureEnclave softwares in the sim, so it is not bridged
 	bash packages/interpose/tests/run-cryptokit-probe.sh
