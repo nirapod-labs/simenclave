@@ -13,8 +13,8 @@
 *A technical architecture reference, built by [Nirapod Labs](https://github.com/nirapod-labs).*
 
 .box {Abstract} type:{note}
-    The iOS Simulator has no Secure Enclave. SimEnclave gives a simulated app a real one
-    by intercepting its `SecKey` calls and relaying the Secure Enclave operations to the
+    The iOS and watchOS Simulators have no Secure Enclave. SimEnclave gives a simulated app a real
+    one by intercepting its `SecKey` calls and relaying the Secure Enclave operations to the
     host Mac's SEP coprocessor over an authenticated loopback channel. The simulated app
     signs with genuine hardware P-256; the private key is generated inside the host SEP and
     never crosses the wire. This document specifies the architecture: the interception layer,
@@ -60,7 +60,7 @@ and serves requests over loopback.
 
 .mermaid caption:{The two address spaces and the path of a Secure Enclave operation.}
     flowchart LR
-        subgraph SIM["iOS Simulator process (guest)"]
+        subgraph SIM["Simulator process (guest)"]
             APP["App code\nSecKeyCreateSignature"]
             HOOK["Interposer (C dylib)\nDobby inline hooks"]
             REG["Shadow-ref registry\nSecKeyRef → handle, pubkey"]
@@ -277,9 +277,10 @@ only if `DYLD_INSERT_LIBRARIES` names the dylib in $ P $'s environment.
 
 .grid columns:{2} gap:{1cm}
     .box {Structural: it is simulator-only} type:{note}
-        The dylib's Mach-O platform is iOS-Simulator. dyld on a real device refuses a
-        simulator-slice binary, so $ \textsf{Sim}(P) = \text{false} $ on hardware no matter where the
-        file sits. The payload physically cannot run on a device.
+        Each dylib's Mach-O platform is a Simulator platform (iOS-Simulator, watchOS-Simulator),
+        one slice each. dyld on a real device refuses a simulator-slice binary, so
+        $ \textsf{Sim}(P) = \text{false} $ on hardware no matter where the file sits. The payload
+        physically cannot run on a device.
 
     .box {Configural: it is debug-only} type:{note}
         A consuming app wires `DYLD_INSERT_LIBRARIES` only in a Debug scheme. A release or archive
@@ -295,9 +296,10 @@ $$$
 
 CI proves the repo side of this on every change. The static fence asserts that any scheme carrying
 the variable is Debug-only, that no Xcode project links the dylib into a build, and that the
-variable appears only in a reviewed allowlist. The helper carries the interposer because it is the
-tool that injects it; the release check asserts that payload is simulator-slice, so the only binary
-the tool ships can never run anywhere but the Simulator.
+variable appears only in a reviewed allowlist. The helper carries the interposers because it is the
+tool that injects them; the release check asserts every payload is a simulator slice and fails
+closed on any device platform, so the only binaries the tool ships can never run anywhere but the
+Simulator.
 
 .mermaid caption:{The fence as a decision: a load survives only the Simulator-and-debug path.}
     flowchart TD
@@ -312,8 +314,10 @@ the tool ships can never run anywhere but the Simulator.
 # Automatic arming
 
 The helper arms every booted simulator the way SimCam bridges the camera: it sets the injection
-variables in the simulator's `launchd` environment, so any app launched afterward inherits the
-interposer with no per-project wiring.
+variables in the simulator's `launchd` environment, choosing the interposer slice that matches each
+simulator's platform, so any app launched afterward inherits it with no per-project wiring. iOS and
+watchOS each have a slice; tvOS and visionOS are the same mechanism, one more slice each, and are
+not built yet.
 
 .mermaid caption:{Arming lifecycle. Apps launched while armed inherit the injection.}
     stateDiagram-v2

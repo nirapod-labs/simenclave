@@ -18,6 +18,45 @@ struct AppActivity: Identifiable {
     var lastSeen: Date
 }
 
+/// A simulator platform SimEnclave can arm, each mapping to one interposer slice built against
+/// that platform's simulator SDK. The ios and watchos slices are separate files because both are
+/// arm64 and cannot share one fat binary. A booted simulator whose platform has no built slice is
+/// left alone, never armed with a slice its dyld would reject.
+private enum SimPlatform {
+    case iOS
+    case watchOS
+
+    /// The interposer slice file name. The ios slice keeps the canonical name, so the bundle and
+    /// the scheme paste are unchanged; every other platform carries a platform-suffixed name.
+    var dylibName: String {
+        switch self {
+        case .iOS: return "simenclave-interpose.dylib"
+        case .watchOS: return "simenclave-interpose-watchos.dylib"
+        }
+    }
+
+    /// The dev-checkout build directory `make dylib` writes this platform's slice into.
+    var devBuildSubpath: String {
+        switch self {
+        case .iOS: return "build-sim/bin"
+        case .watchOS: return "build-watchsim/bin"
+        }
+    }
+
+    /// Map a simctl runtime identifier to a platform SimEnclave can arm, or nil for one with no
+    /// slice. The identifier carries the platform token before the version
+    /// (com.apple.CoreSimulator.SimRuntime.iOS-26-5, ...watchOS-11-0).
+    init?(runtimeIdentifier: String) {
+        if runtimeIdentifier.contains(".iOS-") {
+            self = .iOS
+        } else if runtimeIdentifier.contains(".watchOS-") {
+            self = .watchOS
+        } else {
+            return nil
+        }
+    }
+}
+
 /// The menubar's whole state and the helper lifecycle behind it: the on/off control, the
 /// bound port, the connected apps, and the settings (fixed port, launch at login). The view
 /// binds to this; it owns the `SecureEnclaveService` and the `LoopbackListener`.
@@ -163,18 +202,20 @@ final class HelperModel {
     /// affected; launch SimEnclave before the app, like SimCam. Run off the main actor so the
     /// menubar does not hitch on the `simctl` spawns.
     private func applyInjection() {
-        guard let dylib = Self.interposerDylib(), let directory,
+        guard let directory,
               let token = try? TokenFile.read(fromDirectory: directory).hex else { return }
         let port = self.port
         Task.detached {
-            let env = [
-                ("DYLD_INSERT_LIBRARIES", dylib),
-                ("SIMENCLAVE_PORT", String(port)),
-                ("SIMENCLAVE_TOKEN", token),
-            ]
-            for udid in Self.bootedSimulators() {
+            for sim in Self.bootedSimulators() {
+                // Skip a platform with no built slice rather than arm it with one its dyld rejects.
+                guard let dylib = Self.interposerDylib(for: sim.platform) else { continue }
+                let env = [
+                    ("DYLD_INSERT_LIBRARIES", dylib),
+                    ("SIMENCLAVE_PORT", String(port)),
+                    ("SIMENCLAVE_TOKEN", token),
+                ]
                 for (key, value) in env {
-                    Self.runSimctl(["spawn", udid, "launchctl", "setenv", key, value])
+                    Self.runSimctl(["spawn", sim.udid, "launchctl", "setenv", key, value])
                 }
             }
         }
@@ -184,19 +225,30 @@ final class HelperModel {
     /// cleanup before the helper goes away and a stale port/token cannot mislead a later app.
     func clearInjection() {
         let keys = ["DYLD_INSERT_LIBRARIES", "SIMENCLAVE_PORT", "SIMENCLAVE_TOKEN"]
-        for udid in Self.bootedSimulators() {
-            for key in keys { Self.runSimctl(["spawn", udid, "launchctl", "unsetenv", key]) }
+        // Clear every booted sim regardless of platform: unsetting a variable that was never set
+        // is harmless, and an armed watch sim needs the same teardown as an ios one.
+        for sim in Self.bootedSimulators() {
+            for key in keys { Self.runSimctl(["spawn", sim.udid, "launchctl", "unsetenv", key]) }
         }
     }
 
-    /// The UDIDs of every booted simulator, parsed from `simctl list devices booted`.
-    private nonisolated static func bootedSimulators() -> [String] {
-        guard let output = runSimctlOutput(["list", "devices", "booted"]) else { return [] }
-        let pattern = "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
-        let text = output as NSString
-        return regex.matches(in: output, range: NSRange(location: 0, length: text.length))
-            .map { text.substring(with: $0.range) }
+    /// Every booted simulator paired with the platform SimEnclave can arm, parsed from
+    /// `simctl list -j devices`. The device map is keyed by runtime identifier, so the platform
+    /// is read from the key; a booted device on a platform with no slice is dropped here.
+    private nonisolated static func bootedSimulators() -> [(udid: String, platform: SimPlatform)] {
+        guard let output = runSimctlOutput(["list", "-j", "devices"]),
+              let data = output.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let devices = root["devices"] as? [String: [[String: Any]]] else { return [] }
+        var result: [(udid: String, platform: SimPlatform)] = []
+        for (runtimeID, deviceList) in devices {
+            guard let platform = SimPlatform(runtimeIdentifier: runtimeID) else { continue }
+            for device in deviceList where (device["state"] as? String) == "Booted" {
+                guard let udid = device["udid"] as? String else { continue }
+                result.append((udid: udid, platform: platform))
+            }
+        }
+        return result
     }
 
     @discardableResult
@@ -228,7 +280,9 @@ final class HelperModel {
     func schemeEnvironment() -> String? {
         guard running, let directory, let token = try? TokenFile.read(fromDirectory: directory).hex
         else { return nil }
-        let dylib = Self.interposerDylib() ?? "# build it first: make dylib"
+        // The paste-into-a-scheme path is the manual ios route (the native example is ios); the
+        // helper arms watch sims itself, so the scheme env carries the ios slice.
+        let dylib = Self.interposerDylib(for: .iOS) ?? "# build it first: make dylib"
         return """
         DYLD_INSERT_LIBRARIES=\(dylib)
         SIMENCLAVE_PORT=\(port)
@@ -280,12 +334,11 @@ final class HelperModel {
         }
     }
 
-    /// Walk up from the running binary to the repo's built simulator interposer, so the
-    /// copied scheme environment carries a real path in a dev checkout.
-    private static func interposerDylib() -> String? {
-        let name = "simenclave-interpose.dylib"
-        // Shipped: the interposer is bundled in the helper .app's Resources. It is a
-        // simulator-slice binary, so it can only load into a simulator process, never a device.
+    /// The path to a platform's interposer slice: the helper .app's Resources when shipped, else
+    /// the dev-checkout build tree found by walking up from the running binary. Each slice is a
+    /// simulator-slice binary, so it can only load into a simulator process, never a device.
+    private nonisolated static func interposerDylib(for platform: SimPlatform) -> String? {
+        let name = platform.dylibName
         if let bundled = Bundle.main.resourceURL?.appendingPathComponent(name),
            FileManager.default.fileExists(atPath: bundled.path) {
             return bundled.path
@@ -294,7 +347,7 @@ final class HelperModel {
         var dir = URL(fileURLWithPath: CommandLine.arguments[0])
             .resolvingSymlinksInPath().deletingLastPathComponent()
         for _ in 0 ..< 10 {
-            let candidate = dir.appendingPathComponent("build-sim/bin/\(name)")
+            let candidate = dir.appendingPathComponent("\(platform.devBuildSubpath)/\(name)")
             if FileManager.default.fileExists(atPath: candidate.path) { return candidate.path }
             dir = dir.deletingLastPathComponent()
         }

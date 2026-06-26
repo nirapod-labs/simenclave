@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What SimEnclave is
 
-A developer tool that gives the iOS Simulator a real Secure Enclave. It injects an interposer into a simulated app that hooks the `SecKey` C API and routes Secure Enclave operations to the host Mac's real SEP over an authenticated loopback channel, so the simulated app signs with genuine hardware P-256. It is simulator-only and never ships in a production app.
+A developer tool that gives the iOS and watchOS Simulators a real Secure Enclave. It injects an interposer into a simulated app that hooks the `SecKey` C API and routes Secure Enclave operations to the host Mac's real SEP over an authenticated loopback channel, so the simulated app signs with genuine hardware P-256. It is simulator-only and never ships in a production app.
 
 ## Two ideas that shape the whole codebase
 
 - **Faithfulness.** SimEnclave must be indistinguishable from a real device Secure Enclave. It relays the real SEP's behavior and adds nothing of its own: no signature canonicalization, no app-specific logic. Anything app-specific (a particular signature canonicalization, or a canonical hash the app computes) belongs in the consuming app, so the same app code runs identically in the simulator and on a device. Do not add app-specific behavior here.
-- **The fence.** The tool must be unable to run in a shipped app. The interposer is a simulator-slice binary (dyld on a device refuses it) and reaches a consuming app only through `DYLD_INSERT_LIBRARIES` set in a debug simulator scheme; a release build of that app sets no variable and references nothing. CI asserts the debug-only scheme rule, the variable allowlist, and that the interposer the helper ships is simulator-slice (`fence-check.sh --helper`). The helper carries the interposer because it is the tool that injects it. Treat this as a safety invariant, not a convention.
+- **The fence.** The tool must be unable to run in a shipped app. Each interposer is a simulator-slice binary, one per simulator platform (iOS, watchOS), so dyld on a device refuses it, and it reaches a consuming app only through `DYLD_INSERT_LIBRARIES` set in a debug simulator scheme; a release build of that app sets no variable and references nothing. CI asserts the debug-only scheme rule, the variable allowlist, and that every interposer the helper ships is a simulator slice, failing closed on any device platform (`fence-check.sh --helper`). The helper carries the interposers because it is the tool that injects them. Treat this as a safety invariant, not a convention.
 
 ## Build and test
 
@@ -29,7 +29,7 @@ JavaScript tooling is a pnpm workspace: `pnpm install`, then `pnpm lint` (biome)
 Three deployables and one shared contract, each under its own directory:
 
 - `packages/host-core` (Swift) drives the Mac's Secure Enclave: generate a P-256 key in the SEP, sign, fetch the public key. The host side.
-- `apps/helper` is the menubar app that owns the SEP key and answers requests over loopback. The Secure Enclave works from an ad-hoc binary with no entitlement (M0 and the key-class work proved it, silent and biometry both). The `com.apple.application-identifier` entitlement is for keychain persistence (M3); the menubar is an accessory app (no dock icon, ad-hoc). It ships by building from source (`curl | sh`), so the locally built binary is never quarantined and the ad-hoc signature is enough; the `.app` bundles the simulator-slice interposer it injects (see the fence).
+- `apps/helper` is the menubar app that owns the SEP key and answers requests over loopback. The Secure Enclave works from an ad-hoc binary with no entitlement (M0 and the key-class work proved it, silent and biometry both). The `com.apple.application-identifier` entitlement is for keychain persistence (M3); the menubar is an accessory app (no dock icon, ad-hoc). It ships by building from source (`curl | sh`), so the locally built binary is never quarantined and the ad-hoc signature is enough; the `.app` bundles the simulator-slice interposers it injects, one per simulator platform (see the fence).
 - `packages/interpose` is the injected dylib. It inline-hooks the `SecKey` C API in a simulated app, redirects Secure Enclave operations to the helper, and passes every other call straight through to the real Security framework. It holds the shadow-ref registry (each `SecKeyRef` mapped to a host handle and public key) and the loopback client.
 - `packages/protocol` is the wire contract: one spec (CBOR with a length prefix) and two codecs, Swift for the helper and C for the interposer.
 - `tools/simenclavectl` is the CLI: JSON output and real exit codes, so a person or an agent can drive it.

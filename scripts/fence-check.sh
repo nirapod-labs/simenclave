@@ -59,23 +59,38 @@ if [ "${1:-}" = "--helper" ]; then
   [ -d "$BUNDLE" ] || { echo "usage: fence-check.sh --helper <path.app>" >&2; exit 2; }
   command -v vtool >/dev/null || { echo "FENCE FAIL: --helper needs vtool (run on macOS)" >&2; exit 2; }
   [ -x /usr/libexec/PlistBuddy ] || { echo "FENCE FAIL: --helper needs PlistBuddy (run on macOS)" >&2; exit 2; }
-  DYLIB="$(find "$BUNDLE" -name "*${DYLIB_NAME}*.dylib" 2>/dev/null | head -1)"
-  if [ -z "$DYLIB" ]; then
-    fail "the helper bundle carries no interposer, so it cannot inject: $BUNDLE"
-  else
-    # Every platform load command must be the iOS Simulator, so the payload cannot load on a device.
+  # The helper may carry one interposer per simulator platform (ios, watchos, and any later one).
+  # Every platform load command of every slice must be a simulator platform, so none can load on a
+  # device. The allowlist names the known simulator platforms; a device platform (IOS, WATCHOS, ...)
+  # or an unreadable build is not on it and fails closed.
+  is_simulator_platform() {
+    case "$1" in
+      IOSSIMULATOR | WATCHOSSIMULATOR | TVOSSIMULATOR | XROSSIMULATOR) return 0 ;;
+    esac
+    return 1
+  }
+  found=0
+  # Process substitution, not a pipe, so fail() runs in this shell and sets FAIL.
+  while IFS= read -r DYLIB; do
+    [ -z "$DYLIB" ] && continue
+    found=1
     plats="$(vtool -show-build "$DYLIB" 2>/dev/null | awk '$1=="platform"{print $2}')"
     if [ -z "$plats" ]; then
       fail "could not read the interposer platform: $DYLIB"
-    elif printf '%s\n' "$plats" | grep -qvx 'IOSSIMULATOR'; then
-      fail "the interposer is not simulator-slice only (platforms: $(echo "$plats")): $DYLIB"
+      continue
     fi
-  fi
+    while IFS= read -r plat; do
+      [ -z "$plat" ] && continue
+      is_simulator_platform "$plat" \
+        || fail "the interposer carries a non-simulator platform ($plat), so it could load on a device: $DYLIB"
+    done <<< "$plats"
+  done < <(find "$BUNDLE" -name "*${DYLIB_NAME}*.dylib" 2>/dev/null)
+  [ "$found" -eq 1 ] || fail "the helper bundle carries no interposer, so it cannot inject: $BUNDLE"
   PLIST="$BUNDLE/Contents/Info.plist"
   if [ -f "$PLIST" ] && /usr/libexec/PlistBuddy -c "Print :LSEnvironment" "$PLIST" 2>/dev/null | grep -q "$VAR"; then
     fail "the helper injects into itself ($VAR in $PLIST LSEnvironment)"
   fi
-  [ "$FAIL" -eq 0 ] && echo "FENCE (helper): ok (interposer is simulator-slice)"
+  [ "$FAIL" -eq 0 ] && echo "FENCE (helper): ok (interposers are simulator-slice)"
   exit "$FAIL"
 fi
 

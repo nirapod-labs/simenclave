@@ -13,4 +13,6 @@ jobs:
     # Becomes: runs-on: [self-hosted, macOS, simenclave-se]
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Placeholder. Wire up host-core and interpose tests on the self-hosted SE runner."
+      # Wire up on the self-hosted SE runner: host-core SE tests, mechanism C and D (iOS), and
+      # mechanism D on watchOS (run-mechanism-d-watchos.sh, needs the watchOS Simulator runtime).
+      - run: echo "Placeholder. Wire up host-core and interpose tests, iOS and watchOS, on the self-hosted SE runner."

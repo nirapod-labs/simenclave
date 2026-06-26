@@ -4,13 +4,13 @@ Read this first, because it changes how you should think about the whole tool.
 
 ## SimEnclave is a development tool, and only that
 
-It runs in the iOS Simulator on a developer's Mac. It operates on that developer's own Secure Enclave keys. It never touches a real user's keys or funds, because there aren't any on this path. It is not, and will never be, a production signing path.
+It runs in the iOS and watchOS Simulators on a developer's Mac. It operates on that developer's own Secure Enclave keys. It never touches a real user's keys or funds, because there aren't any on this path. It is not, and will never be, a production signing path.
 
 ## Why it can't ship
 
-The interposer is a simulator-slice binary, so dyld on a real device refuses to load it. It reaches a Simulator app only through `DYLD_INSERT_LIBRARIES` set in a debug scheme, a release build wires nothing, and on a device library validation blocks the injection anyway. Nothing to guard against, because nothing could run.
+Each interposer is a simulator-slice binary, one per simulator platform (iOS, watchOS), so dyld on a real device refuses to load it. It reaches a Simulator app only through `DYLD_INSERT_LIBRARIES` set in a debug scheme, a release build wires nothing, and on a device library validation blocks the injection anyway. Nothing to guard against, because nothing could run.
 
-CI keeps it honest on every PR. `scripts/fence-check.sh` asserts that any scheme carrying the variable is Debug-only, that no Xcode project links the dylib, that the variable stays in a reviewed allowlist, and that the interposer the helper ships is simulator-slice.
+CI keeps it honest on every PR. `scripts/fence-check.sh` asserts that any scheme carrying the variable is Debug-only, that no Xcode project links the dylib, that the variable stays in a reviewed allowlist, and that every interposer the helper ships is a simulator slice (it fails closed on any device platform).
 
 There's no app code to remove and no library linked into the app. Nothing about SimEnclave reaches a user's device.
 
