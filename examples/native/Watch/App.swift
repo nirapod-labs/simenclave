@@ -54,10 +54,10 @@ struct WatchRootView: View {
         }
     }
 
-    /// Generate a silent key (the watch has no biometry to prompt at sign time), sign a message
-    /// digest, and verify it, all through the shared `SEConsole` the iOS app uses.
+    /// Generate a biometry-gated key, sign a message digest, and verify it, all through the shared
+    /// `SEConsole` the iOS app uses. The biometry gate prompts the host Mac's Touch ID.
     private func run() {
-        console.generate(gate: .silent, protection: .whenUnlockedThisDevice)
+        console.generate(gate: .biometry, protection: .whenUnlockedThisDevice)
         console.sign(message: "hello from the watch", mode: .digest)
         console.verify(tamper: false)
     }
