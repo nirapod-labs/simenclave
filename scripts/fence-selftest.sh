@@ -100,6 +100,46 @@ else
   echo "skip: helper-mode pass case (build the interposer with 'make dylib' to cover it)"
 fi
 
+# 8. Helper mode passes with the watchos simulator slice, and with both slices together: every
+#    platform in the bundle is a simulator slice. Needs the watchos slice (make dylib / make build).
+realwatch="$REPO/build-watchsim/bin/simenclave-interpose-watchos.dylib"
+if [ -f "$realwatch" ]; then
+  watchapp="$TMP/Watch.app/Contents"
+  mkdir -p "$watchapp/Resources"
+  write_clean_plist "$watchapp/Info.plist"
+  cp "$realwatch" "$watchapp/Resources/simenclave-interpose-watchos.dylib"
+  expect 0 "helper bundle with the watchos simulator slice passes" -- --helper "$TMP/Watch.app"
+fi
+if [ -f "$real" ] && [ -f "$realwatch" ]; then
+  bothapp="$TMP/Both.app/Contents"
+  mkdir -p "$bothapp/Resources"
+  write_clean_plist "$bothapp/Info.plist"
+  cp "$real" "$bothapp/Resources/simenclave-interpose.dylib"
+  cp "$realwatch" "$bothapp/Resources/simenclave-interpose-watchos.dylib"
+  expect 0 "helper bundle with both simulator slices passes" -- --helper "$TMP/Both.app"
+fi
+
+# 9. Helper mode rejects a real Mach-O whose platform is a device platform, not a simulator slice.
+#    vtool rewrites the sim slice's build version to macos to synthesize a device-platform file.
+if [ -f "$real" ] && command -v vtool >/dev/null; then
+  devapp="$TMP/Device.app/Contents"
+  mkdir -p "$devapp/Resources"
+  write_clean_plist "$devapp/Info.plist"
+  vtool -arch arm64 -set-build-version macos 14.0 14.0 -replace \
+    -output "$devapp/Resources/simenclave-interpose.dylib" "$real" >/dev/null 2>&1
+  expect 1 "helper bundle with a device-platform interposer fails" -- --helper "$TMP/Device.app"
+
+  # 10. A bundle mixing a good simulator slice with a device-platform slice still fails: the check
+  #     covers every slice, not just the first one found.
+  mixedapp="$TMP/Mixed.app/Contents"
+  mkdir -p "$mixedapp/Resources"
+  write_clean_plist "$mixedapp/Info.plist"
+  cp "$real" "$mixedapp/Resources/simenclave-interpose.dylib"
+  vtool -arch arm64 -set-build-version macos 14.0 14.0 -replace \
+    -output "$mixedapp/Resources/simenclave-interpose-bad.dylib" "$real" >/dev/null 2>&1
+  expect 1 "helper bundle mixing a device-platform slice fails" -- --helper "$TMP/Mixed.app"
+fi
+
 if [ "$fails" -eq 0 ]; then
   echo "FENCE SELFTEST: ok"
 fi
