@@ -64,7 +64,7 @@ struct AboutSheet: View {
                 Section {
                     VStack(alignment: .leading, spacing: 8) {
                         SimEnclaveLockup(height: 34)
-                        Text("Real hardware Secure Enclave for the iOS Simulator.")
+                        Text("Real hardware Secure Enclave for the Simulator.")
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 4)
