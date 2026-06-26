@@ -58,8 +58,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.simenclave.SecureEnclaveWatchExample
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_KEY_CFBundleDisplayName: SE Watch
-        # The single-target watch app marker, so the Simulator runs it standalone, no companion.
+        # Standalone single-target watch app, no iOS companion; the sim installs and runs it alone.
         INFOPLIST_KEY_WKApplication: "YES"
+        INFOPLIST_KEY_WKWatchOnly: "YES"
         TARGETED_DEVICE_FAMILY: "4"
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
