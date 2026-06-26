@@ -14,9 +14,16 @@ target_link_libraries(interpose_core PUBLIC se_protocol dobby_bundle)
 set(SE_FRAMEWORKS "-framework Security" "-framework CoreFoundation")
 
 if(SIMENCLAVE_SIM_SLICE)
-  # The injectable dylib: the core plus the dyld load constructor.
+  # The injectable dylib: the core plus the dyld load constructor. Each simulator
+  # platform gets its own name; ios keeps the canonical simenclave-interpose, so the
+  # helper and scripts that load it by that name need no change.
+  if(SIMENCLAVE_SIM_PLATFORM STREQUAL "ios")
+    set(SIMENCLAVE_SLICE_NAME "simenclave-interpose")
+  else()
+    set(SIMENCLAVE_SLICE_NAME "simenclave-interpose-${SIMENCLAVE_SIM_PLATFORM}")
+  endif()
   add_library(simenclave_interpose SHARED src/entry.c)
-  set_target_properties(simenclave_interpose PROPERTIES PREFIX "" OUTPUT_NAME simenclave-interpose)
+  set_target_properties(simenclave_interpose PROPERTIES PREFIX "" OUTPUT_NAME ${SIMENCLAVE_SLICE_NAME})
   target_link_libraries(simenclave_interpose PRIVATE interpose_core ${SE_FRAMEWORKS})
 
   # The in-simulator demo links no interposer; it is injected at spawn.
