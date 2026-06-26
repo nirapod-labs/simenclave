@@ -8,7 +8,7 @@
 # this file. Only non-default keys are set.
 
 PROJECT_NAME           = "SimEnclave"
-PROJECT_BRIEF          = "A real Secure Enclave for the iOS Simulator"
+PROJECT_BRIEF          = "A real Secure Enclave for the iOS and watchOS Simulators"
 
 # Headers only: the headers are the public API and the gate enforces full
 # coverage of them. Implementation files carry @file blocks for source readers

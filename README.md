@@ -9,16 +9,16 @@
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square"></a>
   <img alt="Swift" src="https://img.shields.io/badge/Swift-F05138?style=flat-square&logo=swift&logoColor=white">
   <img alt="C" src="https://img.shields.io/badge/C-A8B9CC?style=flat-square&logo=c&logoColor=white">
-  <img alt="Platform: iOS Simulator and macOS" src="https://img.shields.io/badge/Platform-iOS_Simulator_%C2%B7_macOS-lightgrey?style=flat-square&logo=apple&logoColor=white">
+  <img alt="Platforms: iOS and watchOS Simulators, macOS" src="https://img.shields.io/badge/Platforms-iOS_%C2%B7_watchOS_Sim_%C2%B7_macOS-lightgrey?style=flat-square&logo=apple&logoColor=white">
   <a href="https://github.com/nirapod-labs/simenclave/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/nirapod-labs/simenclave?style=flat-square&label=release&color=2563eb"></a>
   <a href="https://nirapod-labs.github.io/simenclave/"><img alt="Documentation" src="https://img.shields.io/badge/docs-architecture-2563eb?style=flat-square"></a>
 </p>
 
 # SimEnclave
 
-SimEnclave gives the iOS Simulator a real Secure Enclave. It injects a small interposer into a simulated app, catches the `SecKey` calls, and routes the Secure Enclave ones to your Mac's actual SEP over a local channel. The app signs with real hardware P-256. No mock, no software key, and the app itself imports nothing.
+SimEnclave gives the iOS and watchOS Simulators a real Secure Enclave. It injects a small interposer into a simulated app, catches the `SecKey` calls, and routes the Secure Enclave ones to your Mac's actual SEP over a local channel. The app signs with real hardware P-256. No mock, no software key, and the app itself imports nothing.
 
-It exists because the iOS Simulator has no Secure Enclave. That means the one thing hardware-backed signing depends on, a key that never leaves the chip, can't run where you develop all day. So every change to a signing path forces you onto a physical device. SimEnclave fixes that without weakening the security property and without ever becoming something that could ship.
+It exists because the iOS and watchOS Simulators have no Secure Enclave. That means the one thing hardware-backed signing depends on, a key that never leaves the chip, can't run where you develop all day. So every change to a signing path forces you onto a physical device. SimEnclave fixes that without weakening the security property and without ever becoming something that could ship.
 
 <p align="center">
   <video src="https://github.com/user-attachments/assets/d6072dd8-77e3-4ae4-8e38-4775de57ad63" controls muted width="830"></video>
@@ -44,10 +44,10 @@ The interposer is built for the Simulator only. Apple won't load a simulator bin
 
 Two console apps live under [`examples/`](examples), and they do the same job from two different stacks:
 
-- [`examples/native`](examples/native) is a SwiftUI app.
+- [`examples/native`](examples/native) is a SwiftUI app, with an iOS target and a watchOS target that share one Secure Enclave model.
 - [`examples/react-native`](examples/react-native) is an Expo app with a first-party native module.
 
-Both generate keys, sign, verify, and manage keychain items against the same host Secure Enclave through SimEnclave. That's the point of having two: the bridge hooks the `SecKey` C API, so it doesn't care whether the app on top is Swift or JavaScript. Same hardware, same signatures, different framework.
+Both generate keys, sign, verify, and manage keychain items against the same host Secure Enclave through SimEnclave. That's the point of having two: the bridge hooks the `SecKey` C API, so it doesn't care whether the app on top is Swift or JavaScript, on iPhone or Apple Watch. Same hardware, same signatures, different framework.
 
 ## Install
 
@@ -59,7 +59,7 @@ It builds from source and installs the menu bar helper to `/Applications` and th
 
 ## Using it
 
-Open SimEnclave (it lives in the menu bar). It arms every booted simulator, so the next app you launch is injected automatically and your existing `SecKey` code runs against real hardware with nothing else to wire. To pin a specific Xcode scheme instead, copy the scheme environment from the menu and paste it into the scheme; it carries the loader, the port, and the token. The CLI mirrors the helper for a person or an agent, JSON output and honest exit codes throughout: `simenclavectl doctor` checks the wiring, `simenclavectl status` confirms the helper is live.
+Open SimEnclave (it lives in the menu bar). It arms every booted simulator with the slice that matches its platform, iOS or watchOS, so the next app you launch is injected automatically and your existing `SecKey` code runs against real hardware with nothing else to wire. To pin a specific Xcode scheme instead, copy the scheme environment from the menu and paste it into the scheme; it carries the loader, the port, and the token. The CLI mirrors the helper for a person or an agent, JSON output and honest exit codes throughout: `simenclavectl doctor` checks the wiring, `simenclavectl status` confirms the helper is live.
 
 ## Architecture
 
@@ -85,7 +85,7 @@ apps/
 tools/
   simenclavectl/   the JSON CLI
 examples/
-  native/          SwiftUI console
+  native/          SwiftUI console (iOS + watchOS)
   react-native/    Expo console
 scripts/           fence checks, mechanism proofs, build helpers
 docs/              development guide and design notes
@@ -112,7 +112,7 @@ SimEnclave operates only on your own Mac's Secure Enclave keys, in the Simulator
 
 ## Who builds it
 
-SimEnclave is built by [Nirapod Labs](https://github.com/nirapod-labs). It came out of building Nirapod, a non-custodial wallet whose security rests on keys that live in hardware and never leave it. That path, the one you most want to exercise on every change, is the one the Simulator can't run, so testing it meant reaching for a physical device every time. So we built the tool we wanted instead: real hardware-backed signing in the Simulator, behind a fence that keeps it from ever following the code into production. It's useful to anyone whose iOS app touches the Secure Enclave, which is why it's open source.
+SimEnclave is built by [Nirapod Labs](https://github.com/nirapod-labs). It came out of building Nirapod, a non-custodial wallet whose security rests on keys that live in hardware and never leave it. That path, the one you most want to exercise on every change, is the one the Simulator can't run, so testing it meant reaching for a physical device every time. So we built the tool we wanted instead: real hardware-backed signing in the Simulator, behind a fence that keeps it from ever following the code into production. It's useful to anyone whose iOS or watchOS app touches the Secure Enclave, which is why it's open source.
 
 ## License
 

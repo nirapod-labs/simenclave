@@ -3,7 +3,7 @@
 SimEnclave is Swift (the helper and the shared packages), C (the interposer and the wire codec), and a small JS workspace (lint and hooks). Three build tools, each doing what it is best at, with one command surface over them:
 
 - **SwiftPM** builds the Swift packages.
-- **CMake** builds the native C: the interposer for both the macOS host and the iOS-simulator slices, the C codec, and Dobby (the hook backend), which CMake fetches and pins itself.
+- **CMake** builds the native C: the interposer for the macOS host and the simulator slices (iOS and watchOS), the C codec, and Dobby (the hook backend), which CMake fetches and pins itself.
 - **The Makefile** is the front door. It holds no build flags; it delegates to cmake, swift, and biome.
 
 ## Prerequisites
@@ -18,7 +18,7 @@ SimEnclave is Swift (the helper and the shared packages), C (the interposer and 
 make bootstrap
 ```
 
-That runs `brew bundle`, `pnpm install`, installs the git hooks, and configures both CMake build trees, which fetches and builds Dobby. A fresh clone is ready after this.
+That runs `brew bundle`, `pnpm install`, installs the git hooks, and configures the CMake build trees (host, iOS simulator, watchOS simulator), which fetches and builds Dobby. A fresh clone is ready after this.
 
 ## The make targets
 
@@ -28,11 +28,16 @@ That runs `brew bundle`, `pnpm install`, installs the git hooks, and configures 
 | `make test` | the C tests (ctest), the Swift tests, and mechanism C |
 | `make mechanism-c` | host proof: the hooks route to the helper and the signature verifies |
 | `make mechanism-d` | simulator proof (the M0 bar): an in-simulator signature verifies |
+| `make mechanism-d-watchos` | the same proof on the watchOS Simulator (needs the watchOS runtime) |
 | `make lint` | biome, swiftlint, clang-tidy |
 | `make format` | biome, swiftformat, clang-format |
 | `make clean` | remove the build trees |
 
 The Secure Enclave tests skip where there is no SEP, so the suite runs anywhere and actually exercises hardware on an Apple Silicon Mac.
+
+## Simulator platforms
+
+The interposer is one slice per simulator platform, each built against that platform's simulator SDK: `build-sim` for iOS, `build-watchsim` for watchOS. They are separate files because the iOS and watchOS simulator slices are both arm64 and cannot share one fat binary. The helper arms each booted simulator with the slice that matches its platform. tvOS and visionOS are the same mechanism, one more slice each, and are not built here yet. The watchOS on-simulator proof (`make mechanism-d-watchos`) needs the runtime installed: `xcodebuild -downloadPlatform watchOS`.
 
 ## VSCode
 
