@@ -7,9 +7,11 @@ export DEVELOPER_DIR ?= /Applications/Xcode.app/Contents/Developer
 
 # Resolve the simulator SDK through the pinned Xcode, not the active xcode-select
 # (which may be the Command Line Tools, with no iOS SDKs).
-SIM_SDK    := $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun --sdk iphonesimulator --show-sdk-path)
-SIM_TARGET := arm64-apple-ios15.0-simulator
-SWIFT_PKGS := packages/host-core packages/protocol/swift apps/helper tools/simenclavectl
+SIM_SDK      := $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun --sdk iphonesimulator --show-sdk-path)
+SIM_TARGET   := arm64-apple-ios15.0-simulator
+WATCH_SDK    := $(shell DEVELOPER_DIR=$(DEVELOPER_DIR) xcrun --sdk watchsimulator --show-sdk-path)
+WATCH_TARGET := arm64-apple-watchos10.0-simulator
+SWIFT_PKGS   := packages/host-core packages/protocol/swift apps/helper tools/simenclavectl
 
 # Code-signing identity for `make sign`. Default is ad-hoc, which works on any
 # machine with no certificate. Pass a keychain identity for a named local build,
@@ -32,19 +34,24 @@ bootstrap: ## Fresh clone to ready: brew, pnpm, hooks, cmake configure (fetches 
 	pnpm exec lefthook install
 	@$(MAKE) configure
 
-configure: ## Configure both CMake build trees (host and iphonesimulator)
+configure: ## Configure the CMake build trees (host, iphonesimulator, watchsimulator)
 	cmake -S . -B build -DCMAKE_OSX_ARCHITECTURES=arm64
-	cmake -S . -B build-sim -DSIMENCLAVE_SIM_SLICE=ON \
+	cmake -S . -B build-sim -DSIMENCLAVE_SIM_SLICE=ON -DSIMENCLAVE_SIM_PLATFORM=ios \
 	  -DCMAKE_OSX_SYSROOT="$(SIM_SDK)" -DCMAKE_OSX_ARCHITECTURES=arm64 \
 	  -DCMAKE_C_FLAGS="-target $(SIM_TARGET)" -DCMAKE_CXX_FLAGS="-target $(SIM_TARGET)"
+	cmake -S . -B build-watchsim -DSIMENCLAVE_SIM_SLICE=ON -DSIMENCLAVE_SIM_PLATFORM=watchos \
+	  -DCMAKE_OSX_SYSROOT="$(WATCH_SDK)" -DCMAKE_OSX_ARCHITECTURES=arm64 \
+	  -DCMAKE_C_FLAGS="-target $(WATCH_TARGET)" -DCMAKE_CXX_FLAGS="-target $(WATCH_TARGET)"
 
 build: configure ## Build the native slices (cmake) and the Swift packages
 	cmake --build build -j
 	cmake --build build-sim -j
+	cmake --build build-watchsim -j
 	@for p in $(SWIFT_PKGS); do echo "== swift build: $$p =="; ( cd $$p && xcrun swift build ) || exit 1; done
 
-dylib: configure ## Build just the injectable interposer dylib (sim slice)
+dylib: configure ## Build the injectable interposer dylibs (ios and watchos sim slices)
 	cmake --build build-sim --target simenclave_interpose -j
+	cmake --build build-watchsim --target simenclave_interpose -j
 
 helper: ## Build just the helper executable
 	cd apps/helper && xcrun swift build
@@ -95,4 +102,4 @@ format: ## biome + swiftformat + clang-format, each off its existing config
 	-clang-format -i $(C_FILES)
 
 clean: ## Remove the build trees
-	rm -rf build build-sim .turbo
+	rm -rf build build-sim build-watchsim .turbo
