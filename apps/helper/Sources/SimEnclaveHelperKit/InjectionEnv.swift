@@ -7,19 +7,26 @@
 /// `SIMBLE_*`) and are set and cleared directly.
 public enum InjectionEnv {
     /// Add `dylib` to a `DYLD_INSERT_LIBRARIES` value exactly once, preserving every other entry.
+    /// An entry with the same file name is replaced, never appended twice.
     public static func composed(current: String?, adding dylib: String) -> String {
-        var entries = split(current)
-        entries.removeAll { $0 == dylib }
+        let name = fileName(dylib)
+        var entries = split(current).filter { fileName($0) != name }
         entries.append(dylib)
         return entries.joined(separator: ":")
     }
 
-    /// Remove `dylib` from a `DYLD_INSERT_LIBRARIES` value, leaving every other tool's entry.
+    /// Remove `dylib` from a `DYLD_INSERT_LIBRARIES` value by file name, leaving every other
+    /// tool's entry.
     public static func removed(current: String?, removing dylib: String) -> String {
-        split(current).filter { $0 != dylib }.joined(separator: ":")
+        let name = fileName(dylib)
+        return split(current).filter { fileName($0) != name }.joined(separator: ":")
     }
 
     private static func split(_ value: String?) -> [String] {
         (value ?? "").split(separator: ":").map(String.init).filter { !$0.isEmpty }
+    }
+
+    private static func fileName(_ path: String) -> String {
+        String(path.split(separator: "/").last ?? Substring(path))
     }
 }
