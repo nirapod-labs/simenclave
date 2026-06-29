@@ -254,14 +254,15 @@ final class HelperModel {
     /// cleanup before the helper goes away and a stale port/token cannot mislead a later app.
     func clearInjection() {
         for sim in Self.bootedSimulators() {
-            // Remove only our slice from the shared DYLD list; never blanket-unset it, which would
-            // also drop a peer tool's interposer. Unset the variable only when nothing else is left.
-            if let dylib = Self.interposerDylib(for: sim.platform) {
-                let current = Self.simulatorEnv(sim.udid, "DYLD_INSERT_LIBRARIES")
-                let remaining = InjectionEnv.removed(current: current, removing: dylib)
+            // Remove our slice by its canonical name, not the locator-resolved path: a moved or
+            // deleted slice would fail the locator and strand the entry. Rewrite the shared list
+            // only when it carries our entry; never blanket-unset it, which would also drop a peer
+            // tool's interposer.
+            if let current = Self.simulatorEnv(sim.udid, "DYLD_INSERT_LIBRARIES") {
+                let remaining = InjectionEnv.removed(current: current, removing: sim.platform.dylibName)
                 if remaining.isEmpty {
                     Self.runSimctl(["spawn", sim.udid, "launchctl", "unsetenv", "DYLD_INSERT_LIBRARIES"])
-                } else if remaining != (current ?? "") {
+                } else if remaining != current {
                     Self.runSimctl(["spawn", sim.udid, "launchctl", "setenv", "DYLD_INSERT_LIBRARIES", remaining])
                 }
             }

@@ -41,4 +41,30 @@ final class InjectionEnvTests: XCTestCase {
         XCTAssertEqual(InjectionEnv.removed(current: other, removing: mine), other)
         XCTAssertEqual(InjectionEnv.removed(current: nil, removing: mine), "")
     }
+
+    func testRemovedMatchesByFileNameAfterPathMoved() {
+        // The stale-entry case: armed at one path, the slice has since moved; matching on the
+        // file name still strips our entry.
+        let moved = "/old/build/simenclave-interpose.dylib"
+        XCTAssertEqual(InjectionEnv.removed(current: moved, removing: mine), "")
+        XCTAssertEqual(InjectionEnv.removed(current: "\(other):\(moved)", removing: mine), other)
+    }
+
+    func testRemovedByBareCanonicalName() {
+        // Teardown passes the platform's canonical slice name, no resolved path, and still removes
+        // our entry: the locator-independent disarm path.
+        let name = "simenclave-interpose.dylib"
+        XCTAssertEqual(InjectionEnv.removed(current: mine, removing: name), "")
+        XCTAssertEqual(InjectionEnv.removed(current: "\(other):\(mine)", removing: name), other)
+    }
+
+    func testComposedReplacesMovedEntry() {
+        // Re-arming after the slice relocated replaces the stale-path entry instead of
+        // doubling ours.
+        let moved = "/old/build/simenclave-interpose.dylib"
+        XCTAssertEqual(InjectionEnv.composed(current: moved, adding: mine), mine)
+        XCTAssertEqual(
+            InjectionEnv.composed(current: "\(other):\(moved)", adding: mine),
+            "\(other):\(mine)")
+    }
 }
