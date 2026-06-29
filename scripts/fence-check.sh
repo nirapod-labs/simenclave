@@ -136,6 +136,9 @@ HITS="$(git ls-files 'project.yml' '*/project.yml' '*.pbxproj' '*.xcconfig' '*In
 #   launchd environment so a launched app inherits the interposer. Dev-tool only,
 #   never a shipped app; the same role as set-scheme-env.sh. Rule 2 still forbids
 #   bundling the dylib, so this does not weaken the fence.
+# apps/helper/Sources/SimEnclaveHelperKit/InjectionEnv.swift  the append-if-absent
+#   composition the menubar arms with, so SimEnclave and a peer tool share the
+#   variable instead of overwriting it. Pure string logic; rule 2 still applies.
 # .github/workflows/          the fence and CI definitions
 # *.md and docs/              prose
 # *.xcscheme and *.xcconfig   governed by rule 1 (debug-only), not this list
@@ -148,6 +151,7 @@ allowed() {
     packages/interpose/tests/*) return 0 ;;
     packages/interpose/src/entry.c) return 0 ;;
     apps/helper/Sources/simenclave-menubar/HelperModel.swift) return 0 ;;
+    apps/helper/Sources/SimEnclaveHelperKit/InjectionEnv.swift) return 0 ;;
     .github/workflows/*) return 0 ;;
     *.md | docs/*) return 0 ;;
     *.xcscheme | *.xcconfig) return 0 ;;

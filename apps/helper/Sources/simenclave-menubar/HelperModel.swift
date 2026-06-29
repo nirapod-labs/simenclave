@@ -87,6 +87,7 @@ final class HelperModel {
     private var listener: LoopbackListener?
     private var directory: String?
     private var observer: Observer?
+    private var rearmTimer: Timer?
 
     private static let fixedPortKey = "fixedPort"
     private static let lastPortKey = "lastPort"
@@ -180,9 +181,12 @@ final class HelperModel {
         UserDefaults.standard.set(Int(port), forKey: Self.lastPortKey)
         TokenFile.writePort(port, toDirectory: dir)
         applyInjection()
+        startRearmLoop()
     }
 
     func stop() {
+        rearmTimer?.invalidate()
+        rearmTimer = nil
         clearInjection()
         listener?.stop()
         listener = nil
@@ -205,30 +209,65 @@ final class HelperModel {
         guard let directory,
               let token = try? TokenFile.read(fromDirectory: directory).hex else { return }
         let port = self.port
-        Task.detached {
-            for sim in Self.bootedSimulators() {
-                // Skip a platform with no built slice rather than arm it with one its dyld rejects.
-                guard let dylib = Self.interposerDylib(for: sim.platform) else { continue }
-                let env = [
-                    ("DYLD_INSERT_LIBRARIES", dylib),
-                    ("SIMENCLAVE_PORT", String(port)),
-                    ("SIMENCLAVE_TOKEN", token),
-                ]
-                for (key, value) in env {
-                    Self.runSimctl(["spawn", sim.udid, "launchctl", "setenv", key, value])
-                }
+        Task.detached { Self.armBootedSimulators(port: port, token: token) }
+    }
+
+    /// Re-arm booted simulators every 2s so a sim booted, rebooted, or clobbered after start
+    /// recovers without a manual toggle. Idempotent: each pass writes only a drifted variable.
+    private func startRearmLoop() {
+        rearmTimer?.invalidate()
+        rearmTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyInjection() }
+        }
+    }
+
+    /// Arm every booted simulator on a platform we have a slice for. Idempotent.
+    private nonisolated static func armBootedSimulators(port: UInt16, token: String) {
+        for sim in bootedSimulators() {
+            guard let dylib = interposerDylib(for: sim.platform) else { continue }
+            // Set port and token before the DYLD entry: the interposer is inert without both, so a
+            // half-set env injects nothing rather than an app that cannot reach the helper.
+            if simulatorEnv(sim.udid, "SIMENCLAVE_PORT") != String(port) {
+                runSimctl(["spawn", sim.udid, "launchctl", "setenv", "SIMENCLAVE_PORT", String(port)])
+            }
+            if simulatorEnv(sim.udid, "SIMENCLAVE_TOKEN") != token {
+                runSimctl(["spawn", sim.udid, "launchctl", "setenv", "SIMENCLAVE_TOKEN", token])
+            }
+            // DYLD_INSERT_LIBRARIES is shared: add our slice via composed(), keeping every other
+            // tool's entry so SimEnclave and a peer (SimBLE) coexist.
+            let currentDyld = simulatorEnv(sim.udid, "DYLD_INSERT_LIBRARIES")
+            let composed = InjectionEnv.composed(current: currentDyld, adding: dylib)
+            if composed != (currentDyld ?? "") {
+                runSimctl(["spawn", sim.udid, "launchctl", "setenv", "DYLD_INSERT_LIBRARIES", composed])
             }
         }
+    }
+
+    /// Read one variable from a booted simulator's launchd environment, nil when unset.
+    private nonisolated static func simulatorEnv(_ udid: String, _ key: String) -> String? {
+        guard let output = runSimctlOutput(["spawn", udid, "launchctl", "getenv", key]) else { return nil }
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// Clear the simulator injection env. Synchronous, so a Quit or toggle-off finishes the
     /// cleanup before the helper goes away and a stale port/token cannot mislead a later app.
     func clearInjection() {
-        let keys = ["DYLD_INSERT_LIBRARIES", "SIMENCLAVE_PORT", "SIMENCLAVE_TOKEN"]
-        // Clear every booted sim regardless of platform: unsetting a variable that was never set
-        // is harmless, and an armed watch sim needs the same teardown as an ios one.
         for sim in Self.bootedSimulators() {
-            for key in keys { Self.runSimctl(["spawn", sim.udid, "launchctl", "unsetenv", key]) }
+            // Remove only our slice from the shared DYLD list; never blanket-unset it, which would
+            // also drop a peer tool's interposer. Unset the variable only when nothing else is left.
+            if let dylib = Self.interposerDylib(for: sim.platform) {
+                let current = Self.simulatorEnv(sim.udid, "DYLD_INSERT_LIBRARIES")
+                let remaining = InjectionEnv.removed(current: current, removing: dylib)
+                if remaining.isEmpty {
+                    Self.runSimctl(["spawn", sim.udid, "launchctl", "unsetenv", "DYLD_INSERT_LIBRARIES"])
+                } else if remaining != (current ?? "") {
+                    Self.runSimctl(["spawn", sim.udid, "launchctl", "setenv", "DYLD_INSERT_LIBRARIES", remaining])
+                }
+            }
+            // Our port and token are ours alone to clear.
+            Self.runSimctl(["spawn", sim.udid, "launchctl", "unsetenv", "SIMENCLAVE_PORT"])
+            Self.runSimctl(["spawn", sim.udid, "launchctl", "unsetenv", "SIMENCLAVE_TOKEN"])
         }
     }
 
