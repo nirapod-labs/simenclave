@@ -21,10 +21,11 @@
 #include <stdlib.h>
 
 __attribute__((constructor)) static void simenclave_load(void) {
-  // Inert without configuration: a stray DYLD_INSERT_LIBRARIES outside a wired dev
-  // scheme installs nothing, which shrinks the blast radius of an accidental
-  // injection. This is not the fence; a release build bundles no dylib at all.
-  if (!getenv("SIMENCLAVE_PORT") && !getenv("SIMENCLAVE_TOKEN")) return;
+  // Inert unless fully configured: install hooks only when both port and token are set.
+  // A partially-set env (mid-arm, or a stray DYLD_INSERT_LIBRARIES) installs nothing. This
+  // shrinks the blast radius of an accidental injection; it is not the fence, which is that
+  // a release build bundles no dylib at all.
+  if (!getenv("SIMENCLAVE_PORT") || !getenv("SIMENCLAVE_TOKEN")) return;
   int failures = simenclave_install_hooks();
   if (failures != 0) {
     fprintf(stderr, "[simenclave] %d hook(s) failed to install\n", failures);
